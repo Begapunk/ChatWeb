@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useChatStore } from "../stores/chat";
 import { useUiStore } from "../stores/ui";
@@ -22,6 +22,7 @@ const chat = useChatStore();
 const ui = useUiStore();
 const router = useRouter();
 const nameDraft = ref<string>(chat.displayName);
+const isLive = computed<boolean>(() => matrixServiceStatus.mode === "live");
 
 function saveName(): void {
   chat.loginDemo(nameDraft.value);
@@ -30,6 +31,11 @@ function saveName(): void {
 function exitDemo(): void {
   chat.logout();
   void router.push("/login");
+}
+
+function backToDemo(): void {
+  chat.disconnectLive();
+  void router.push("/");
 }
 </script>
 
@@ -99,7 +105,7 @@ function exitDemo(): void {
         <strong>隐私约定</strong>
         <p>通知内容只显示「有新消息」，不显示正文、发送者或预览 —— 避免锁屏与推送通道泄露明文。</p>
       </div>
-      <p class="panel__note">Web Push / Sygnal、iOS 主屏幕授权与用户手势流程属于 M5，当前 demo 未实现。</p>
+      <p class="panel__note">Web Push / Sygnal、iOS 主屏幕授权与用户手势流程属于 M5，当前未实现（demo 与 live 均如此）。</p>
     </div>
 
     <!-- 设备 -->
@@ -118,28 +124,44 @@ function exitDemo(): void {
         >验证</button>
         <span v-else class="device__ok">已验证</span>
       </div>
-      <p class="panel__note">设备数据为演示用。真实设备列表需接 Matrix 的 device keys / 跨签名验证（M3）。</p>
+      <p class="panel__note">上方设备列表为界面演示数据（live 模式同样如此，请勿视为真实设备清单）。真实设备列表与跨签名验证需接 Matrix device keys（M3）。「验证」按钮在 live 模式会明确提示未实现，不改变任何密钥状态。</p>
     </div>
 
     <!-- 安全中心 -->
     <div v-else-if="active === 'security'" class="panel">
-      <div class="statuscard">
+      <div class="statuscard" :class="{ 'statuscard--live': isLive }">
         <span class="statuscard__dot"></span>
         <div>
-          <strong>端到端加密：未接线</strong>
+          <strong v-if="isLive">端到端加密：{{ matrixServiceStatus.e2ee ? "已就绪" : "未就绪" }}</strong>
+          <strong v-else>端到端加密：未接线</strong>
           <p>{{ matrixServiceStatus.reason }}</p>
+          <p v-if="isLive" class="statuscard__meta ae-mono">
+            {{ matrixServiceStatus.userId }} · {{ matrixServiceStatus.deviceId }}
+          </p>
         </div>
       </div>
-      <div class="checklist">
-        <div class="checklist__item"><span class="todo">待实现</span><div><strong>MatrixService</strong><p>登录 → device_id 重建 client → initRustCrypto → sync 生命周期</p></div></div>
-        <div class="checklist__item"><span class="todo">待实现</span><div><strong>密钥备份与恢复</strong><p>SSSS + 恢复密钥 / 口令，清除浏览器数据前强警告</p></div></div>
-        <div class="checklist__item"><span class="todo">待实现</span><div><strong>跨签名设备验证</strong><p>emoji / QR 验证、未验证设备提醒、设备撤销</p></div></div>
-        <div class="checklist__item"><span class="todo">待实现</span><div><strong>双浏览器 E2EE 回归</strong><p>真实 Synapse 往返、服务器侧仅存 m.room.encrypted 密文证明</p></div></div>
+      <div v-if="isLive" class="checklist">
+        <div class="checklist__item"><span class="done">已实现</span><div><strong>MatrixService</strong><p>登录 → device_id 重建 client → initRustCrypto → sync 生命周期</p></div></div>
+        <div class="checklist__item"><span class="todo">待实现</span><div><strong>密钥备份与恢复</strong><p>SSSS + 恢复密钥 / 口令，清除浏览器数据前强警告（M3）</p></div></div>
+        <div class="checklist__item"><span class="todo">待实现</span><div><strong>跨签名设备验证</strong><p>emoji / QR 验证、未验证设备提醒、设备撤销（M3）</p></div></div>
+        <div class="checklist__item"><span class="todo">待实现</span><div><strong>加密附件与通话</strong><p>EncryptedFile 附件、MatrixRTC / LiveKit 媒体 E2EE（M4 / M6）</p></div></div>
       </div>
-      <div class="callout">
-        <strong>不会伪装完成</strong>
-        <p>界面里出现的「已验证设备」「加密」字样只是布局占位。在真实链路通过测试前，
-          本 demo 不构成端到端加密通讯工具，请勿用于任何真实私密 conversation。</p>
+      <div v-else class="checklist">
+        <div class="checklist__item"><span class="todo">演示模式不启用</span><div><strong>MatrixService / 真实 E2EE</strong><p>已在「连接真实服务器」模式实现并通过双浏览器验收；演示模式不联网、不产生密钥</p></div></div>
+        <div class="checklist__item"><span class="todo">待实现（M3）</span><div><strong>密钥备份与恢复</strong><p>SSSS + 恢复密钥 / 口令，清除浏览器数据前强警告</p></div></div>
+        <div class="checklist__item"><span class="todo">待实现（M3）</span><div><strong>跨签名设备验证</strong><p>emoji / QR 验证、未验证设备提醒、设备撤销</p></div></div>
+        <div class="checklist__item"><span class="todo">待实现（M4 / M6）</span><div><strong>加密附件与通话</strong><p>EncryptedFile 附件、MatrixRTC / LiveKit 媒体 E2EE</p></div></div>
+      </div>
+      <div v-if="isLive" class="callout">
+        <strong>真实链路的边界</strong>
+        <p>当前已启用设备端 Megolm 加密，但 M3 的密钥备份/恢复、跨签名验证与 M4 的加密附件
+          尚未实现。清除浏览器数据会丢失本设备的解密密钥，请先完成 M3 再依赖历史消息。</p>
+      </div>
+      <div v-else class="callout">
+        <strong>演示模式不加密</strong>
+        <p>真实链路（live 模式）已实现并通过双浏览器 E2EE 安全门禁，但<strong>当前处于演示模式</strong>：
+          不连接服务器、不产生密钥、消息只存内存，界面里的「已验证设备」「加密」字样均为布局占位。
+          请勿用演示模式进行任何真实私密对话；需要加密请从 /login 选择「连接真实服务器」。</p>
       </div>
     </div>
 
@@ -149,7 +171,7 @@ function exitDemo(): void {
         <Avatar :name="chat.displayName" :initials="chat.displayName.slice(0, 1)" :size="64" />
         <div>
           <strong>{{ chat.displayName }}</strong>
-          <span class="ae-mono">@me:aether.local</span>
+          <span class="ae-mono">{{ chat.meId }}</span>
         </div>
       </div>
       <label class="field">
@@ -162,21 +184,27 @@ function exitDemo(): void {
 
     <!-- 关于 -->
     <div v-else class="panel">
-      <div class="about__brand"><span class="about__mark"></span><strong>Aether</strong><span class="ae-mono">0.3.0-demo</span></div>
-      <p class="about__desc">私人端到端加密通讯 PWA · M2 界面演示版</p>
+      <div class="about__brand"><span class="about__mark"></span><strong>Aether</strong><span class="ae-mono">0.5.0</span></div>
+      <p class="about__desc">私人端到端加密通讯 PWA · M2 真实链路 + 演示模式</p>
       <div class="about__facts">
         <div><span>前端</span><strong>Vue 3 · TypeScript 5.9.3 · Vite 8 · VitePWA</strong></div>
-        <div><span>后端</span><strong>未连接（演示数据）</strong></div>
-        <div><span>加密</span><strong>未接线，见「安全」页</strong></div>
-        <div><span>状态</span><strong>可体验交互，不可用于真实通讯</strong></div>
+        <div><span>后端</span><strong>{{ isLive ? "Synapse（同源 Caddy）" : "未连接（演示数据）" }}</strong></div>
+        <div><span>加密</span><strong>{{ isLive ? (matrixServiceStatus.e2ee ? "Megolm / Rust Crypto WASM 已就绪" : "未就绪，见安全页") : "未接线，见「安全」页" }}</strong></div>
+        <div><span>状态</span><strong>{{ isLive ? "真实 E2EE 会话" : "可体验交互，不可用于真实通讯" }}</strong></div>
       </div>
       <div class="about__actions">
-        <button type="button" class="ae-btn" @click="chat.resetDemo()">重置演示数据</button>
-        <button type="button" class="ae-btn" @click="exitDemo">查看登录 / 邀请码页</button>
+        <template v-if="isLive">
+          <button type="button" class="ae-btn" @click="backToDemo">断开并返回演示模式</button>
+          <button type="button" class="ae-btn" @click="exitDemo">切换账号 / 重新登录</button>
+        </template>
+        <template v-else>
+          <button type="button" class="ae-btn" @click="chat.resetDemo()">重置演示数据</button>
+          <button type="button" class="ae-btn" @click="exitDemo">连接真实服务器</button>
+        </template>
       </div>
       <p class="panel__note">
         本项目源码、Compose 部署与 M1 服务端验收见仓库 README 与 docs/。
-        M1 已通过 172/172 回归；本 demo 不属于该验收范围。
+        M1 已通过 172/172 回归；当前链路状态见 docs/M2-LIVE-REPORT.md。
       </p>
     </div>
   </section>
@@ -357,6 +385,22 @@ function exitDemo(): void {
   background: var(--ae-warn);
 }
 
+.statuscard--live {
+  border-left-color: var(--ae-accent);
+  background: color-mix(in srgb, var(--ae-accent) 10%, transparent);
+}
+
+.statuscard--live .statuscard__dot {
+  background: var(--ae-accent);
+}
+
+.statuscard__meta {
+  margin-top: 6px;
+  color: var(--ae-text-subtle) !important;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
 .device__icon {
   flex: none;
   width: 34px;
@@ -395,13 +439,21 @@ function exitDemo(): void {
   font-weight: 600;
 }
 
-.checklist__item .todo {
+.checklist__item .todo,
+.checklist__item .done {
   flex: none;
   padding: 2px 8px;
   border: 1px solid var(--ae-border-strong);
   border-radius: 6px;
   color: var(--ae-text-subtle);
   font-size: 11px;
+}
+
+.checklist__item .done {
+  border-color: color-mix(in srgb, var(--ae-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--ae-accent) 12%, transparent);
+  color: var(--ae-accent);
+  font-weight: 700;
 }
 
 .checklist__item strong {

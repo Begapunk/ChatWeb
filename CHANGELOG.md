@@ -1,5 +1,30 @@
 # Changelog
 
+> 按里程碑推进顺序排列（M0 → M1 → M2）。每个版本的 `Not done` 是**该版本交付当时**的边界快照，
+> 后续版本完成时以最新条目与 `README.md` / `docs/M2-LIVE-REPORT.md` 为准，不回改历史条目。
+
+## [0.0.1-m0] - 2026-11-14
+
+### Added
+- 项目骨架：frontend / backend/invite-service / infra(synapse,postgres,caddy,livekit,coturn) / scripts / docs / m0。
+- M0 验证工程：T01–T06 共 7 个测试套件，110 项检查全部通过。
+- 本地 Synapse v1.165.0 部署脚本（Docker，注册令牌+禁联邦+禁访客）。
+- 文档：架构、依赖锁定清单、风险清单、M0 计划与验证报告。
+
+### Verified
+- matrix-js-sdk 45.1.0 + crypto-wasm 18.9.2：Node 与 Chrome 157 双环境。
+- 两个独立浏览器设备经真实 Synapse 的 Megolm E2EE 往返；服务器仅存密文。
+- 邀请令牌限额拒绝、跨签名引导(UIA)、SSSS+服务器密钥备份、重启离线补同步、
+  加密 IndexedDB 存储与错误密钥拒绝、规范附件加密往返与篡改检测。
+
+### Findings（详见报告第 4 节）
+- F1 设备密钥竞态需"发送前等待对端设备可见"；F2 重启须新建客户端实例；
+- F3 timeline 早于解密；F4 WASM 资源路径需显式固定；F5 headless dump-dom 不可靠改用 playwright；
+- F6 Docker Hub 需镜像源；F7 非成员管理员读事件被拒（符合预期）。
+
+### Not done（明确推迟）
+- 产品 UI、FastAPI 邀请服务、PostgreSQL、Element Call/LiveKit 通话、iOS/Web Push、设备撤销 UI。
+
 ## [0.2.0-m1] - 2026-11-14
 
 ### Added（M1 服务端与准入）
@@ -164,24 +189,66 @@
   Web Push、通话均未实现。界面「已验证设备 / 加密」字样仅为布局占位。
 - 因此 **M2 里程碑仍未完成**；本次交付的是可试用的 UI demo，不是加密通讯工具。
 
-## [0.0.1-m0] - 2026-11-14
+## [0.5.0-m2-r] - 2026-11-14
 
-### Added
-- 项目骨架：frontend / backend/invite-service / infra(synapse,postgres,caddy,livekit,coturn) / scripts / docs / m0。
-- M0 验证工程：T01–T06 共 7 个测试套件，110 项检查全部通过。
-- 本地 Synapse v1.165.0 部署脚本（Docker，注册令牌+禁联邦+禁访客）。
-- 文档：架构、依赖锁定清单、风险清单、M0 计划与验证报告。
+### Added（M2 真实加密链路，用户要求「完全实现 M2」）
+- `services/matrix.ts` 从 `implemented:false / e2ee:false` 占位改为真实 `MatrixService`：
+  `initAsync(new URL("/wasm/...", origin))` 固定 WASM 路径（M0 F4）→ `loginWithPassword` →
+  用返回 `device_id` 重建 client（M0 事实 9）→
+  `initRustCrypto({useIndexedDB, cryptoDatabasePrefix, storageKey})`；
+  `storageKey` = PBKDF2-SHA256 / 150k 轮 / 256bit，salt 与 `cryptoDatabasePrefix` 均绑定 userId。
+- WASM 资产链：`scripts/prepare-wasm.mjs`（`postinstall`）校验 crypto-wasm 精确版本 **18.9.2**
+  并从 node_modules 复制 `public/wasm/matrix_sdk_crypto_wasm_bg.wasm`（7.43 MiB）；
+  二进制不入库（gitignore），不进 PWA precache。
+- 邀请码注册闭环：`/invite-api/v1/verify` → 短时效注册令牌 → Synapse UIA 逐阶段提交 →
+  轮询自动加入邀请服务发出的两个固定 Megolm 加密房间。
+- 双数据源状态层 `stores/chat.ts`：demo（内存假数据、不联网）/ live（真实 SDK 事件源）
+  共用视图 API；live 模式未实现的附件/表情/跨签名验证显式提示「属于 M3/M4」，不插假数据。
+- 真实 `m.relates_to` 回复 / `redactEvent` 撤回 / 已读回执；会话与消息来自 `getRooms()` 与
+  `Room.timeline`，900ms 轮询复核解密完成后的变化（M0 F3）。
+- 新增测试：`vitest.config.ts`（独立配置，不复用 VitePWA 插件）、
+  `src/services/matrix.test.ts` + `src/data/demo.test.ts`（21 项）、
+  `e2e/live-e2ee.mjs`（双浏览器 E2EE 安全门禁 32 项）；npm 脚本
+  `test` / `e2e:live` / `prepare:wasm` / `postinstall`。
+- `docs/M2-LIVE-REPORT.md`：SDK API 实证核对表、4 个真实缺陷根因与修复、验收结果、边界清单。
 
-### Verified
-- matrix-js-sdk 45.1.0 + crypto-wasm 18.9.2：Node 与 Chrome 157 双环境。
-- 两个独立浏览器设备经真实 Synapse 的 Megolm E2EE 往返；服务器仅存密文。
-- 邀请令牌限额拒绝、跨签名引导(UIA)、SSSS+服务器密钥备份、重启离线补同步、
-  加密 IndexedDB 存储与错误密钥拒绝、规范附件加密往返与篡改检测。
+### Fixed（安全门禁过程中发现并修复的 4 个真实缺陷，详见报告 §3）
+- **D1 整页刷新静默回退演示假数据**：凭据只在内存；新增非敏感 `sessionStorage` 标记 +
+  `main.ts` 一次性导航守卫，刷新后强制回 `/login?reason=session-expired` 并显式提示，
+  不展示假会话（L19/L20/L20b 实证）。
+- **D2 房间加密状态误报 E2EE**：`getConversations()` 原以「crypto 层就绪」兜底把未加密房间
+  标成 `encrypted`；改为严格只依据 `m.room.encryption` 状态事件，单测覆盖否定用例。
+- **D3 验收脚本假通过**：旧断言只看房间内「存在任意 `m.room.encrypted`」（M1 留有历史密文）。
+  改为发送前后服务器事件 ID **差集**：仅本次新事件参与 `m.room.encrypted` / 算法 /
+  ciphertext / 无明文 / 无 session_key 断言；新增 L07b 等待服务器 `joined_members` 确认入房。
+- **D4 自动入房后 `Cannot encrypt event in unconfigured room` 竞态**：SDK `rust-crypto.js:170-176`
+  显示 `roomEncryptors[roomId]` 未建立时抛错且消息根本不发；`sync.js:1202-1212` 注释点明建立时机。
+  新增 `waitForEncryptionReady(roomId)`，用公开 API `isEncryptionEnabledInRoom()` +
+  `getUserDeviceInfo(peers, true)` 有界等待房间加密配置/成员/设备密钥收敛；
+  超时**取消发送、绝不降级明文**，仅对明确时序竞态最多 3 次有界重试（M0 F1 工程化落地）。
 
-### Findings（详见报告第 4 节）
-- F1 设备密钥竞态需"发送前等待对端设备可见"；F2 重启须新建客户端实例；
-- F3 timeline 早于解密；F4 WASM 资源路径需显式固定；F5 headless dump-dom 不可靠改用 playwright；
-- F6 Docker Hub 需镜像源；F7 非成员管理员读事件被拒（符合预期）。
+### Changed（配置与 UI）
+- `vite.config.ts`：dev/preview 同源代理 `/_matrix` 与 `/invite-api` 到本地 Caddy
+  （`secure:false` 仅作用于这两条本地代理，非全局关闭 TLS 校验）；`assetsInclude` 加 `.wasm`。
+- `LoginView` 双模式（演示 / 连接真实服务器）+ 阶段进度；`ConversationsView` / `ChatView` /
+  `SettingsView` / `DemoBadge` / `Composer` 按 live/demo 显示真实状态与边界提示。
+- `types.ts`：`Message.encrypted?` 标记原始密文事件；`Conversation.encrypted` 严格来自状态事件。
+- `.gitignore` 忽略 `frontend/public/wasm/`（由 postinstall 生成）。
 
-### Not done（明确推迟）
-- 产品 UI、FastAPI 邀请服务、PostgreSQL、Element Call/LiveKit 通话、iOS/Web Push、设备撤销 UI。
+### Verified（真实执行，非推断）
+- `npm run typecheck` exit 0；`npm run build` exit 0（PWA `sw.js` / `manifest.webmanifest`，
+  WASM 资产 7.43 MiB 经 HTTP 200 验证可达）。
+- `npm run test`（Vitest 5.1.0）**21/21**（2 文件）；`npm run smoke` **36/36**（demo 回归，
+  S33/S34 仍证明 demo 不请求 Matrix/邀请 API、不连外部域名）。
+- **`npm run e2e:live` 32/32，连续三次通过（0 失败）**：两个独立 Chrome 实例各自真实注册、
+  加载 Rust Crypto WASM、自动入同一加密房间；A 发送 → B 用自身密钥解出明文；
+  服务器侧本次新事件 `new=1 encrypted=1`，仅 `m.room.encrypted`（Megolm，含 ciphertext），
+  无明文 / `session_key` / `body`；管理端点浏览器侧 404/401；4xx 全部属协议预期白名单
+  （`total4xx=6 unexpected=[]`）；刷新守卫生效。见 `docs/M2-LIVE-REPORT.md`。
+
+### Not done（明确不宣称完成，见报告 §5）
+- M3 密钥备份/恢复（SSSS）、跨签名设备验证、设备撤销；M4 EncryptedFile 加密附件；
+  M5/M6 Web Push、MatrixRTC/LiveKit 通话；M7 发布门禁与监控。
+- 凭据只在内存 → 刷新必须重新连接服务器；清除浏览器数据仍会永久失去历史消息解密能力。
+- 单元/双浏览器 E2E 覆盖纯逻辑与真实 SDK 行为，未做组件级快照测试。
+- **因此当前版本不可作为正式私密通讯工具发布**；TLS/DTLS 均不等价于 E2EE。

@@ -36,6 +36,8 @@ export interface Message {
   reactions?: Reaction[];
   attachment?: Attachment;
   durationSec?: number;
+  /** 真实链路：原始事件为 m.room.encrypted（Megolm 密文）。演示数据不带此字段。 */
+  encrypted?: boolean;
 }
 
 export interface Conversation {
@@ -47,7 +49,7 @@ export interface Conversation {
   unread: number;
   pinned: boolean;
   muted: boolean;
-  /** 演示字段：表示「未来接入 Matrix 后该房间启用 Megolm」，当前并未真正加密。 */
+  /** 房间是否启用 Megolm。演示数据为占位值；真实链路由 m.room.encryption 状态事件判定。 */
   encrypted: boolean;
 }
 

@@ -3,7 +3,8 @@
 > 评级：高 / 中 / 低。状态：已验证 / 缓解中 / 待验证 / 阻塞 / 已关闭。
 > 安全相关失败一律阻止发布（工程原则 9）。
 > 2026-11-14 更新：R2.2 / R2.5 / R2.6 反映「彻底移除名额上限」(M1-R1)；R4.3 为 M2 开工首检结论；
-> R4.5 为 M2 演示版新增的「误当作真实加密工具」风险与缓解。
+> R4.5 为 M2 演示版阶段风险（已按历史阶段改写）；**R1.7 / R4.6 / R4.7 / R4.8 为 M2-R 真实链路新增**，
+> 现行链路状态以 `docs/M2-LIVE-REPORT.md` 为准。安全门禁：`npm run e2e:live`（32/32），失败一律阻断发布。
 
 ## R1 加密与密钥（高）
 
@@ -15,6 +16,8 @@
 | R1.4 | 自研附件加密偏离 Matrix 规范导致互操作/安全缺陷 | 附件泄露或不可解 | 严格按规范 EncryptedFile（AES-256-CTR+SHA-256，v2），T03b 已验证往返+篡改检测；M4 与 Element 互操作测试 | 部分验证 |
 | R1.5 | 把 TLS/DTLS-SRTP 误当通话 E2EE | 通话被 SFU 侧窃听 | M6 必须实测 MatrixRTC 每成员密钥分发与 LiveKit E2EE 状态，验证 SFU 不可解密 | 待验证（M6） |
 | R1.6 | 未验证设备加入房间接收密钥 | 中间人 | 房间设置 `onlyAllowTrustedDevices` 评估 + 新设备显著提醒 + 跨签名验证流程（M3） | API 已确认，策略待 M3 |
+| R1.7 | **M2-R 新增**：`storageKey` 由用户口令经 PBKDF2-SHA256 / 150k 轮派生；弱口令降低加密存储的抗离线爆破强度，且口令只存内存 → 刷新页面即丢失凭据与派生密钥 | 密钥保护弱化 / 会话不可用 | ① 口令不落盘、不进日志、不写 localStorage（M2-R 已实现）；② 派生 salt 与 `cryptoDatabasePrefix` 绑定 userId，避免跨账号复用；③ 刷新后强制回登录页并显式提示「真实会话已结束」，不静默回退演示假数据（D1）；④ **M3 需用 SSSS/恢复密钥替代「口令即密钥」模型**，并在 UI 强制口令强度与清数据前备份告警 | 缓解中（M3 前为已知取舍） |
+| R1.8 | **M2-R 新增**：清除浏览器数据 / 未做密钥备份 → 本设备解密密钥与历史消息永久不可解 | 数据永久丢失 | live 模式安全中心与 README 已强提示；`docs/M2-LIVE-REPORT.md §5` 列为发布阻断项；**M3 完成 SSSS 密钥备份/恢复前不得作为正式私密通讯工具发布** | 未关闭（阻断正式发布） |
 
 ## R2 准入与账号（高）
 
@@ -45,7 +48,10 @@
 | R4.2 | MatrixRTC API 与旧文档不符（slot 化、子路径导出） | M6 返工 | 以安装版 .d.ts 为准（已审计）；M6 前先做最小通话验证 | 已审计 |
 | R4.3 | TS7/Vite8/vue-router5 为新世代版本，工具链兼容性未知 | M2 构建失败 | **M2 开工首检已实测**：TS 7.0.2 的 `exports` 不再暴露 `./lib/tsc`，`vue-tsc 3.3.14` 仍 `require.resolve('typescript/lib/tsc')` → `ERR_PACKAGE_PATH_NOT_EXPORTED`，类型检查失败；降级 **TypeScript 5.9.3** 后 `vue-tsc --noEmit` + `vite build` + PWA 产物全部通过。M2 锁定 5.9.3，见 `docs/M2-KICKOFF-CHECK.md` | **已验证并缓解** |
 | R4.4 | SDK 无附件加密高层 API | M4 工作量 | 按规范实现 + 单测 + 与 Element 互操作验证 | 已确认 |
-| R4.5 | **演示版界面被误当作可用加密通讯工具**（用户拿真实私密内容试用） | 高：机密性预期落空 | ① 常驻「演示模式」徽章 + 聊天页「未联网、未加密 / E2EE 未接线」横幅 + 安全中心「端到端加密：未接线」及 4 项待实现清单；② `services/matrix.ts` 以 `implemented:false / e2ee:false` 常量固化，UI 占位文案显式声明；③ 烟测 S33/S34 用请求日志实证**不连 Matrix/邀请 API、不连外部域名**；④ README / CHANGELOG / TODO / `M2-DEMO-REPORT.md` 均写明「消息仅存浏览器内存、不是加密工具、M2 未完成」。**发布门禁：演示版不得作为产品发布** | 已缓解（M2 demo） |
+| R4.5 | **（M2 demo 阶段历史风险，已随 M2-R 消解）演示版界面被误当作可用加密通讯工具** | 高：机密性预期落空 | 当时缓解：① 演示徽章 + 聊天页「E2EE 未接线」横幅 + 安全中心 4 项待实现清单；② 当时的 `services/matrix.ts` 以 `implemented:false / e2ee:false` 常量固化（**M2-R 后已改为 `implemented:true`，此描述仅适用于 demo 阶段**）；③ 烟测 S33/S34 实证 demo 不连 Matrix/邀请 API、不连外部域名（M2-R 回归 36/36 仍保持）。**M2-R 现状**：demo 与 live 在 UI 上显式区分，live 刷新后强制回登录页提示，不静默回退 demo（D1）；演示模式仍**不得作为产品发布** | 已缓解（历史阶段 / 现行见 R1.7、R1.8、R4.8） |
+| R4.6 | **M2-R 新增**：SDK `unconfigured room` 加密竞态 —— 客户端刚 `joinRoom` 自动入房、下一次 `/sync` 尚未把 `m.room.encryption` 交给 Rust Crypto 层时发送，SDK 抛 `Cannot encrypt event in unconfigured room`，**消息根本不到服务器**（表面看似「已发送」） | 高：消息静默丢失 / 用户误判已送达 | 查证 `rust-crypto.js:170-176` 与 `sync.js:1202-1212` 源码后，用公开 API `isEncryptionEnabledInRoom()` + `getUserDeviceInfo(peers, true)` 实现 `waitForEncryptionReady()` 有界等待房间加密配置/成员/设备密钥收敛；超时**取消发送并抛明确错误，绝不降级明文**；仅对明确时序竞态最多 3 次有界重试（对应 M0 F1）。单测覆盖「加密层缺失不调用 sendEvent / 超时不发明文 / 非竞态错误不重发」 | **已缓解并验证**（M2-R D4，e2e:live 32/32 ×3） |
+| R4.7 | **M2-R 新增**：验收脚本「假通过」—— 房间内已存在 M1 历史 `m.room.encrypted` 事件，仅断言「存在密文」即使本次消息未发出也会通过 | 高：安全门禁失效，把不加密的版本误判为通过 | 发送前取服务器事件 ID 基线，发送后**只取差集新事件**做断言（L12–L15b）：本次 `new=1 encrypted=1`、算法 `m.megolm.v1.aes-sha2`、含 ciphertext、无明文 / `session_key` / `body`；另加 L07b 等待服务器 `joined_members` 确认双端入房。B 端必须实际解密出明文（L10/L11） | **已缓解并验证**（M2-R D3） |
+| R4.8 | **M2-R 新增**：房间加密状态误报 E2EE —— 用「客户端 crypto 层就绪」兜底判定，会把未启用加密的房间标成 `encrypted` | 高：向用户虚假承诺机密性 | 严格只依据 `m.room.encryption` 状态事件判定 `Conversation.encrypted`；单测专门断言「crypto 层就绪但无状态事件 → `encrypted === false`」 | **已缓解并验证**（M2-R D2） |
 
 ## R5 运维（中）
 

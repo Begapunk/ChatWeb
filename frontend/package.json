@@ -1,7 +1,7 @@
 {
   "name": "aether-frontend",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,9 +9,13 @@
     "typecheck": "vue-tsc --noEmit",
     "preview": "vite preview",
     "test": "vitest run",
-    "smoke": "node e2e/demo-smoke.mjs"
+    "smoke": "node e2e/demo-smoke.mjs",
+    "prepare:wasm": "node scripts/prepare-wasm.mjs",
+    "postinstall": "node scripts/prepare-wasm.mjs",
+    "e2e:live": "node e2e/live-e2ee.mjs"
   },
   "dependencies": {
+    "@matrix-org/matrix-sdk-crypto-wasm": "18.9.2",
     "matrix-js-sdk": "45.1.0",
     "pinia": "4.1.0",
     "vue": "3.5.45",

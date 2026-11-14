@@ -2,7 +2,8 @@
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useChatStore } from "../stores/chat";
-import { ME_ID, formatDayLabel } from "../data/demo";
+import { formatDayLabel } from "../data/demo";
+import { matrixServiceStatus } from "../services/matrix";
 import Avatar from "../components/Avatar.vue";
 import MessageBubble from "../components/MessageBubble.vue";
 import Composer from "../components/Composer.vue";
@@ -14,6 +15,8 @@ const chat = useChatStore();
 
 const scroller = ref<HTMLElement | null>(null);
 const menuOpen = ref<boolean>(false);
+const isLive = computed<boolean>(() => matrixServiceStatus.mode === "live");
+const encryptedRoom = computed<boolean>(() => chat.activeConversation?.encrypted ?? false);
 
 const roomId = computed<string>(() => String(route.params.roomId ?? ""));
 const conv = computed(() => chat.roomOf(roomId.value));
@@ -23,7 +26,7 @@ const subtitle = computed<string>(() => {
   const c = conv.value;
   if (!c) return "";
   if (c.kind === "group") return `${c.memberIds.length} 位成员 · 邀请制`;
-  const other = c.memberIds.find((id) => id !== ME_ID);
+  const other = c.memberIds.find((id) => id !== chat.meId);
   const contact = other ? chat.contactOf(other) : undefined;
   if (!contact) return "";
   return `${contact.online ? "在线" : "离线"}${contact.verified ? " · 已验证设备" : ""}`;
@@ -33,7 +36,7 @@ const headerAvatar = computed(() => {
   const c = conv.value;
   if (!c) return { name: "?", initials: "?", color: "#4fd1c5" };
   if (c.kind === "group") return { name: c.name, initials: c.name.slice(0, 1), color: "#4fd1c5" };
-  const other = c.memberIds.find((id) => id !== ME_ID) ?? ME_ID;
+  const other = c.memberIds.find((id) => id !== chat.meId) ?? chat.meId;
   const contact = chat.contactOf(other);
   return { name: contact.name, initials: contact.initials, color: contact.color };
 });
@@ -138,10 +141,19 @@ function onReact(id: string, emoji: string): void {
       </div>
     </header>
 
-    <div class="chat__notice">
-      <span>演示模式 · 消息为本地模拟，未联网、未加密</span>
-      <span class="chat__pill">E2EE 未接线</span>
+    <div class="chat__notice" :class="{ 'chat__notice--live': isLive }">
+      <template v-if="isLive">
+        <span v-if="matrixServiceStatus.e2ee">真实链路 · Rust Crypto WASM 已就绪</span>
+        <span v-else>真实链路 · 加密层未就绪，请勿视为加密会话</span>
+        <span class="chat__pill">{{ encryptedRoom ? "Megolm E2EE" : "房间未加密" }}</span>
+      </template>
+      <template v-else>
+        <span>演示模式 · 消息为本地模拟，未联网、未加密</span>
+        <span class="chat__pill">E2EE 未接线</span>
+      </template>
     </div>
+    <div v-if="chat.liveError" class="chat__error" role="alert">{{ chat.liveError }}</div>
+    <div v-else-if="chat.liveNotice" class="chat__live-note" role="status">{{ chat.liveNotice }}</div>
 
     <div ref="scroller" class="chat__scroll">
       <div v-for="group in groups" :key="group.day">
@@ -150,7 +162,7 @@ function onReact(id: string, emoji: string): void {
           v-for="(msg, index) in group.items"
           :key="msg.id"
           :message="msg"
-          :mine="msg.senderId === ME_ID"
+          :mine="msg.senderId === chat.meId"
           :sender-name="senderFor(msg).name"
           :sender-color="senderFor(msg).color"
           :sender-initials="senderFor(msg).initials"
@@ -288,6 +300,33 @@ function onReact(id: string, emoji: string): void {
   color: var(--ae-warn);
   font-size: 11.5px;
   text-align: center;
+}
+
+.chat__notice--live {
+  background: color-mix(in srgb, var(--ae-accent) 10%, transparent);
+  color: var(--ae-accent);
+}
+
+.chat__notice--live .chat__pill {
+  border-color: color-mix(in srgb, var(--ae-accent) 45%, transparent);
+}
+
+.chat__error,
+.chat__live-note {
+  flex: none;
+  padding: 6px 10px;
+  font-size: 11.5px;
+  text-align: center;
+}
+
+.chat__error {
+  background: color-mix(in srgb, var(--ae-warn) 14%, transparent);
+  color: var(--ae-warn);
+}
+
+.chat__live-note {
+  background: var(--ae-surface);
+  color: var(--ae-text-muted);
 }
 
 .chat__pill {

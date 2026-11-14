@@ -1,7 +1,9 @@
-# Aether 依赖版本锁定清单（M0）
+# Aether 依赖版本锁定清单（M0 基线 + M2 / M2-R 更新）
 
 > 核实日期：2026-11-14。所有版本来自官方 registry / GitHub releases 当日查询，
 > 非记忆推断。生产安装必须使用精确版本（无 `^`/`~`），并提交 lockfile。
+> 前端实际锁定值以 `frontend/package.json` + `frontend/package-lock.json` 为准；
+> M2-R 真实链路的实现与验收见 `docs/M2-LIVE-REPORT.md`。
 
 ## 1. 核心通信与加密
 
@@ -40,8 +42,12 @@
 | vue-router | 5.5.1 | npm | peers: vue ^3.5.34 ✓；vite/pinia/@pinia/colada 均为 optional |
 | pinia | 4.1.0 | npm | peers: vue ^3.5.11 ✓, typescript >=5.6 ✓ |
 | vite | 8.3.8 | npm | — |
+| @vitejs/plugin-vue | 6.0.11 | npm | M2 脚手架实际锁定 |
 | vite-plugin-pwa | 2.0.0 | npm | peers: vite ^3.1–^8 ✓；需 workbox-build/window ^7.4.1 |
+| vue-tsc | 3.3.14 | npm | 类型检查门禁；与 TS 7 不兼容，见下行 |
 | typescript | **5.9.3**（原拟 7.0.2，M2 开工首检已修订） | npm | TS 7.0.2 的 `exports` 不再暴露 `./lib/tsc`，而 `vue-tsc 3.3.14` 的 `resolveTscPath()` 仍 `require.resolve('typescript/lib/tsc')` → `ERR_PACKAGE_PATH_NOT_EXPORTED`，类型检查失败；降级 5.9.3 后 `vue-tsc --noEmit`、`vite build` 与 PWA 产物（`sw.js` / `manifest.webmanifest`）全部通过 |
+| **@matrix-org/matrix-sdk-crypto-wasm** | **18.9.2** | npm（SDK 精确依赖） | **M2-R 起为前端直接依赖**（不只是传递依赖）：`postinstall` 从 node_modules 复制 `.wasm` 到 `public/wasm/`，运行时 `initAsync(new URL("/wasm/matrix_sdk_crypto_wasm_bg.wasm", origin))` 固定路径（M0 F4）。版本须与 matrix-js-sdk 45.1.0 精确绑定，不得单独升级；`prepare-wasm.mjs` 会校验版本并阻断漂移 |
+| **matrix-js-sdk** | **45.1.0** | npm latest | **M2-R 起为前端运行时依赖**：`MatrixService` 用它完成登录/重建 client/`initRustCrypto`/sync/自动入房/Megolm 收发 |
 
 > **M2 工具链结论（2026-11-14 实测，见 `docs/M2-KICKOFF-CHECK.md`）**：上表除 TypeScript
 > 外的版本均在最小工程 `.tmp-gen/m2-probe` 中完成 `vite build` + `vue-tsc --noEmit` 验证。
@@ -52,11 +58,20 @@
 
 | 组件 | 锁定版本 | 用途 |
 |---|---|---|
-| vitest | 5.1.0 | 单元测试（peers: vite ^6.4–^8 ✓）；**安装须用在线元数据**（`--prefer-offline` 会因过期 packument 误报 `@vitest/mocker@5.1.0` 不存在），见 `frontend/README.md` |
-| @playwright/test | 1.65.1 | 端到端多浏览器测试（M2 起，可用本机 Chrome channel） |
-| playwright-core | 1.65.1 | M0 已用；**M2 demo 起同时精确锁定为 `frontend` devDependency**，用于 `frontend/e2e/demo-smoke.mjs` 的 36 项真实 Chrome 烟测（免浏览器下载，直接指向本机 `chrome.exe`），见 `docs/M2-DEMO-REPORT.md` |
+| vitest | 5.1.0 | **M2-R 起实际运行**：`npm run test` 21/21（`src/services/matrix.test.ts` + `src/data/demo.test.ts`）。peers: vite ^6.4–^8 ✓；独立配置 `frontend/vitest.config.ts`（`environment: "node"`、只含 `src/**/*.test.ts`），**不复用 `vite.config.ts`**，避免 VitePWA 构建插件介入测试。**安装须用在线元数据**（`--prefer-offline` 会因过期 packument 误报 `@vitest/mocker@5.1.0` 不存在） |
+| @playwright/test | 1.65.1 | M0 版本核实基线（端到端多浏览器测试）；**M2/M2-R 未使用**，实际用 `playwright-core` 直接驱动本机 Chrome |
+| playwright-core | 1.65.1 | M0 已用；**精确锁定为 `frontend` devDependency**：`e2e/demo-smoke.mjs`（demo 36 项真实 Chrome 烟测，见 `docs/M2-DEMO-REPORT.md`）与 **`e2e/live-e2ee.mjs`（M2-R 双独立 Chrome 实例 E2EE 安全阻断门禁 32 项，见 `docs/M2-LIVE-REPORT.md`）**。免浏览器下载，直接指向本机 `chrome.exe` |
 | fake-indexeddb | 6.2.8 | Node 环境模拟 IndexedDB（M0 已用） |
 | esbuild | 0.28.2 | M0 浏览器验证打包 |
+
+### WASM 资产链（M2-R 新增，禁止凭记忆改动）
+
+`frontend/scripts/prepare-wasm.mjs` 绑定 `package.json` 的 `postinstall` / `prepare:wasm`：
+从 `frontend/node_modules/@matrix-org/matrix-sdk-crypto-wasm/pkg/matrix_sdk_crypto_wasm_bg.wasm`
+复制到 `frontend/public/wasm/matrix_sdk_crypto_wasm_bg.wasm`（实测 **7.43 MiB / 7,790,998 bytes**）。
+脚本先读取依赖包 `package.json` 并**断言版本恰好为 18.9.2**，不一致即报错退出，防止 SDK 与 WASM 版本漂移。
+`public/wasm/` 已 gitignore（二进制不入库），且不进入 PWA precache —— 离线时不误导用户以为能收发消息。
+`vite.config.ts` 用 `assetsInclude: ["**/*.wasm"]` 与 `initAsync(new URL("/wasm/...", origin))` 显式固定路径。
 
 ## 6. M0 审计确认的关键 API 事实（禁止凭记忆改动）
 
@@ -87,3 +102,23 @@
     避免打包器重写 `import.meta.url` 造成 404（T04 实测）。
 13. 首次向某用户发送加密消息前，应等待 `getUserDeviceInfo` 可见对端设备，
     否则可能因密钥查询竞态导致对方永久 UTD（T05 实测，报告 F1）。
+
+## 7. M2-R 安装版 `.d.ts` / 源码实证补充（2026-11-14，禁止凭记忆改动）
+
+以下为 M2-R 接线前逐一核对**已安装版本**文件得到的结果，完整证据表见 `docs/M2-LIVE-REPORT.md §2`。
+
+| API / 行为 | 证据位置 | 结论 |
+|---|---|---|
+| `initAsync(url?: URL \| string)` | `crypto-wasm/index.d.ts:49` | 可传 `URL` 对象；运行时用 `new URL("/wasm/...", origin)` 固定路径 |
+| `initRustCrypto({ storageKey?: Uint8Array })` | `client.d.ts:1178-1203` | `storageKey` 须恰好 32 字节（PBKDF2-SHA256 / 256bit） |
+| `getUserDeviceInfo(userIds, downloadUncached?)` | `crypto-api/index.d.ts:184` | **默认 `false`：未跟踪用户根本不出现在结果 map**；M2-R 显式传 `true` |
+| `isEncryptionEnabledInRoom(roomId)` | `crypto-api/index.d.ts:88`、`rust-crypto.js:292-295` | 读 `OlmMachine.getRoomSettings()`，是「加密层已感知房间配置」的权威判定 |
+| `Cannot encrypt event in unconfigured room` | `rust-crypto.js:170-176` | `roomEncryptors[roomId]` 不存在时抛错，**消息不会到达服务器** |
+| `onCryptoEvent` 建立时机 | `sync.js:1202-1212`（源码注释本身点明竞态） | 只在 sync 处理 `m.room.encryption` 状态事件时建立 RoomEncryptor → 需 M2-R 的 `waitForEncryptionReady()` |
+| `ClientEvent.Sync === "PREPARED"` | `sync.d.ts:14` | 与 M1 `helpers.makeDevice` 一致 |
+| `getStateEvents(type, stateKey)` | `room-state.d.ts:217-224` | 双参数返回单个事件或 null，用于严格判定房间加密（修 D2） |
+| `getWireType` / `getWireContent` / `isDecryptionFailure` | `models/event.d.ts:349,400,504` | 区分「服务器原始密文」与「本地解密结果」（修 D3 差集断言） |
+
+**M0 F7 复核**：非房间成员管理员经客户端 API 读事件会 404，但 M1 的管理员是固定加密房间的
+创建者/成员，用其 token 读 `/rooms/{id}/messages` 返回 200；该管理员客户端从未 `initRustCrypto`，
+拿不到 Megolm 会话密钥，只能读到密文 —— 符合最小权限且可完成服务器侧密文证明。

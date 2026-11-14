@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from "vue-router";
 import { useChatStore } from "../stores/chat";
-import { ME_ID, formatListTime } from "../data/demo";
+import { formatListTime } from "../data/demo";
 import Avatar from "../components/Avatar.vue";
 import type { Conversation } from "../types";
 
@@ -12,7 +12,7 @@ function preview(roomId: string): string {
   const msg = chat.lastMessage(roomId);
   if (!msg) return "暂无消息";
   if (msg.revoked) return "消息已撤回";
-  const who = msg.senderId === ME_ID ? "我" : chat.contactOf(msg.senderId).name;
+  const who = msg.senderId === chat.meId ? "我" : chat.contactOf(msg.senderId).name;
   const body = msg.kind === "text"
     ? msg.body
     : msg.attachment?.name ?? (msg.kind === "voice" ? "语音消息" : "附件");
@@ -23,7 +23,7 @@ function avatarFor(conv: Conversation): { name: string; initials: string; color:
   if (conv.kind === "group") {
     return { name: conv.name, initials: conv.name.slice(0, 1), color: "#4fd1c5", online: false };
   }
-  const other = conv.memberIds.find((id) => id !== ME_ID) ?? ME_ID;
+  const other = conv.memberIds.find((id) => id !== chat.meId) ?? chat.meId;
   const c = chat.contactOf(other);
   return { name: c.name, initials: c.initials, color: c.color, online: c.online };
 }
@@ -40,6 +40,8 @@ function open(roomId: string): void {
       <div>
         <h1>消息</h1>
         <p class="convs__sub">
+          <span v-if="chat.isLive" class="convs__live">真实 E2EE</span>
+          <span v-else class="convs__demo">演示模式</span>
           {{ chat.conversations.length }} 个会话
           <span v-if="chat.unreadTotal > 0"> · {{ chat.unreadTotal }} 条未读</span>
         </p>
@@ -47,9 +49,17 @@ function open(roomId: string): void {
       <button type="button" class="convs__search" @click="router.push('/search')">搜索</button>
     </div>
 
-    <ul class="convs__list">
+    <div v-if="!chat.conversations.length" class="convs__empty">
+      <strong v-if="chat.isLive">正在等待房间邀请</strong>
+      <strong v-else>暂无会话</strong>
+      <p v-if="chat.isLive">
+        邀请服务会在注册后自动把你加入固定加密房间，通常几秒内到达；页面会自动刷新并接受邀请。
+      </p>
+    </div>
+
+    <ul v-else class="convs__list">
       <li v-for="conv in chat.sortedConversations" :key="conv.id">
-        <button type="button" class="item" @click="open(conv.id)">
+        <button type="button" class="item" :data-room-id="conv.id" @click="open(conv.id)">
           <Avatar
             :name="avatarFor(conv).name"
             :initials="avatarFor(conv).initials"
@@ -76,7 +86,14 @@ function open(roomId: string): void {
       </li>
     </ul>
 
-    <p class="convs__foot">点击任意会话进入聊天，试试发送、回复、撤回与表情。</p>
+    <p class="convs__foot">
+      {{
+        chat.isLive
+          ? "消息经 Matrix Megolm 端到端加密，服务器只存密文。"
+          : "点击任意会话进入聊天，试试发送、回复、撤回与表情。"
+      }}
+    </p>
+    <p v-if="chat.liveError" class="convs__error" role="alert">{{ chat.liveError }}</p>
   </section>
 </template>
 
@@ -98,6 +115,55 @@ function open(roomId: string): void {
 .convs__sub {
   margin-top: 3px;
   color: var(--ae-text-subtle);
+  font-size: 12.5px;
+}
+
+.convs__live,
+.convs__demo {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.convs__live {
+  border: 1px solid color-mix(in srgb, var(--ae-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--ae-accent) 12%, transparent);
+  color: var(--ae-accent);
+}
+
+.convs__demo {
+  border: 1px solid color-mix(in srgb, var(--ae-warn) 45%, transparent);
+  background: color-mix(in srgb, var(--ae-warn) 12%, transparent);
+  color: var(--ae-warn);
+}
+
+.convs__empty {
+  padding: 28px 18px;
+  border: 1px dashed var(--ae-border-strong);
+  border-radius: var(--ae-radius-sm);
+  text-align: center;
+}
+
+.convs__empty strong {
+  font-size: 15px;
+}
+
+.convs__empty p {
+  margin-top: 8px;
+  color: var(--ae-text-muted);
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+
+.convs__error {
+  margin-top: 12px;
+  padding: 9px 12px;
+  border-radius: var(--ae-radius-sm);
+  background: color-mix(in srgb, var(--ae-warn) 12%, transparent);
+  color: var(--ae-warn);
   font-size: 12.5px;
 }
 

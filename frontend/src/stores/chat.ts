@@ -8,6 +8,14 @@ import {
   demoReplies,
   buildDemoMessages,
 } from "../data/demo";
+import {
+  MatrixService,
+  matrixService,
+  matrixServiceStatus,
+  resetLiveStatus,
+  clearLiveSession,
+} from "../services/matrix";
+import type { LiveCredentials } from "../services/matrix";
 import type {
   Attachment,
   Contact,
@@ -29,9 +37,15 @@ const meFallback: Contact = {
   id: ME_ID, name: "我", initials: "我", color: "#4fd1c5", online: true, verified: true,
 };
 
+export type LiveConnectOptions =
+  | { kind: "register"; inviteCode: string; username: string; password: string }
+  | { kind: "login"; username: string; password: string };
+
 /**
- * 演示模式状态层：所有数据都在内存，刷新即重置。
- * 不发起任何网络请求、不持久化消息、不涉及密钥 —— 这不是加密通讯实现。
+ * 双数据源状态层：
+ *  - demo：全部数据在内存，刷新即重置，不联网、不涉及密钥（界面演示）。
+ *  - live：由 MatrixService 驱动，消息来自真实 Synapse 的 Megolm 密文解密结果。
+ * 视图层 API 保持一致；live 模式下未实现的能力会显式给出提示，不插入假数据。
  */
 export const useChatStore = defineStore("chat", () => {
   const loggedIn = ref<boolean>(true);
@@ -49,6 +63,17 @@ export const useChatStore = defineStore("chat", () => {
     autoDownload: false,
     enterToSend: true,
   });
+
+  const liveBusy = ref<boolean>(false);
+  const liveError = ref<string>("");
+  const liveNotice = ref<string>("");
+  const roomOverrides = ref<Record<string, Partial<Conversation>>>({});
+  let unsubscribe: (() => void) | null = null;
+
+  const isLive = computed<boolean>(() => matrixServiceStatus.mode === "live");
+  const meId = computed<string>(() =>
+    isLive.value && matrixServiceStatus.userId ? matrixServiceStatus.userId : ME_ID,
+  );
 
   function lastMessage(roomId: string): Message | undefined {
     const list = messages.value[roomId] ?? [];
@@ -91,7 +116,11 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   function contactOf(id: string): Contact {
-    if (id === ME_ID) return { ...meFallback, name: displayName.value };
+    if (id === meId.value) {
+      const name = displayName.value;
+      return { ...meFallback, id, name, initials: name.slice(0, 1) };
+    }
+    if (isLive.value) return matrixService.contactOf(id);
     return contacts.value.find((c) => c.id === id) ?? {
       ...meFallback, id, name: id.split(":")[0].replace("@", ""), initials: "?", color: "#8b9cf7",
     };
@@ -120,8 +149,23 @@ export const useChatStore = defineStore("chat", () => {
     activeRoomId.value = roomId;
     replyToId.value = null;
     markRead(roomId);
+    if (isLive.value) void matrixService.markRead(roomId);
   }
 
+  /** 从真实 MatrixService 拉取房间与时间线，合并客户端本地覆盖（置顶/静音）。 */
+  function syncFromLive(): void {
+    if (!isLive.value) return;
+    const convs = matrixService.getConversations().map((c) => ({ ...c, ...roomOverrides.value[c.id] }));
+    conversations.value = convs;
+    const next: Record<string, Message[]> = {};
+    for (const c of convs) next[c.id] = matrixService.getMessages(c.id);
+    messages.value = next;
+    if (!convs.some((c) => c.id === activeRoomId.value)) {
+      activeRoomId.value = convs[0]?.id ?? "";
+    }
+  }
+
+  // ---- 演示模式行为 ----
   function scheduleReply(roomId: string): void {
     const conv = roomOf(roomId);
     if (!conv) return;
@@ -141,10 +185,22 @@ export const useChatStore = defineStore("chat", () => {
     }, 1300);
   }
 
+  // ---- 消息动作（双数据源） ----
   function sendText(raw: string): void {
     const body = raw.trim();
     const roomId = activeRoomId.value;
     if (!body || !roomId) return;
+
+    if (isLive.value) {
+      const reply = replyToId.value ?? undefined;
+      replyToId.value = null;
+      liveError.value = "";
+      void matrixService.sendText(roomId, body, reply).catch((err: unknown) => {
+        liveError.value = err instanceof Error ? err.message : String(err);
+      });
+      return;
+    }
+
     const msg: Message = {
       id: nextId("m"), roomId, senderId: ME_ID, kind: "text", body,
       ts: Date.now(), status: "sending",
@@ -152,7 +208,6 @@ export const useChatStore = defineStore("chat", () => {
     };
     messages.value[roomId] = [...(messages.value[roomId] ?? []), msg];
     replyToId.value = null;
-    // 分阶段模拟投递状态，便于试用时观察发送 / 已送达 / 已读。
     window.setTimeout(() => updateStatus(roomId, msg.id, "sent"), 280);
     window.setTimeout(() => updateStatus(roomId, msg.id, "delivered"), 760);
     if (settings.value.readReceipts) {
@@ -162,6 +217,10 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   function sendAttachment(kind: MessageKind, attachment: Attachment, durationSec?: number): void {
+    if (isLive.value) {
+      liveNotice.value = "真实链路的加密附件（EncryptedFile）属于 M4，当前未实现；请切换到演示模式查看占位效果。";
+      return;
+    }
     const roomId = activeRoomId.value;
     if (!roomId) return;
     const msg: Message = {
@@ -175,6 +234,12 @@ export const useChatStore = defineStore("chat", () => {
 
   function revoke(msgId: string): void {
     const roomId = activeRoomId.value;
+    if (isLive.value) {
+      void matrixService.revoke(roomId, msgId).catch((err: unknown) => {
+        liveError.value = err instanceof Error ? err.message : String(err);
+      });
+      return;
+    }
     const list = messages.value[roomId];
     if (!list) return;
     messages.value[roomId] = list.map((m) =>
@@ -188,6 +253,10 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   function addReaction(msgId: string, emoji: string): void {
+    if (isLive.value) {
+      liveNotice.value = "真实链路的表情回应属于 M4 范围，当前未实现。";
+      return;
+    }
     const roomId = activeRoomId.value;
     const list = messages.value[roomId];
     if (!list) return;
@@ -209,15 +278,25 @@ export const useChatStore = defineStore("chat", () => {
 
   function togglePin(roomId: string): void {
     const conv = roomOf(roomId);
-    if (conv) patchRoom(roomId, { pinned: !conv.pinned });
+    if (!conv) return;
+    const pinned = !conv.pinned;
+    if (isLive.value) roomOverrides.value = { ...roomOverrides.value, [roomId]: { ...roomOverrides.value[roomId], pinned } };
+    patchRoom(roomId, { pinned });
   }
 
   function toggleMute(roomId: string): void {
     const conv = roomOf(roomId);
-    if (conv) patchRoom(roomId, { muted: !conv.muted });
+    if (!conv) return;
+    const muted = !conv.muted;
+    if (isLive.value) roomOverrides.value = { ...roomOverrides.value, [roomId]: { ...roomOverrides.value[roomId], muted } };
+    patchRoom(roomId, { muted });
   }
 
   function verifyDevice(id: string): void {
+    if (isLive.value) {
+      liveNotice.value = "跨签名设备验证属于 M3，当前未实现。";
+      return;
+    }
     devices.value = devices.value.map((d) => (d.id === id ? { ...d, verified: true } : d));
   }
 
@@ -225,12 +304,61 @@ export const useChatStore = defineStore("chat", () => {
     settings.value = { ...settings.value, [key]: value };
   }
 
+  // ---- 模式切换 ----
   function loginDemo(name: string): void {
     displayName.value = name.trim() || "你";
     loggedIn.value = true;
   }
 
+  /** 连接真实 Synapse：邀请码注册或口令登录 → Rust Crypto → sync → 自动入房。 */
+  async function connectLive(options: LiveConnectOptions): Promise<void> {
+    liveBusy.value = true;
+    liveError.value = "";
+    liveNotice.value = "";
+    try {
+      let creds: LiveCredentials;
+      if (options.kind === "register") {
+        const token = await MatrixService.verifyInvite(options.inviteCode);
+        creds = await MatrixService.register(options.username, options.password, token);
+      } else {
+        creds = await MatrixService.login(options.username, options.password);
+      }
+      const identity = await matrixService.connect(creds, options.password, options.username);
+      displayName.value = identity.displayName;
+      loggedIn.value = true;
+      roomOverrides.value = {};
+      unsubscribe?.();
+      unsubscribe = matrixService.onChange(syncFromLive);
+      syncFromLive();
+      activeRoomId.value = conversations.value[0]?.id ?? "";
+    } catch (err) {
+      matrixService.stop();
+      resetLiveStatus();
+      liveError.value = err instanceof Error ? err.message : String(err);
+      throw err;
+    } finally {
+      liveBusy.value = false;
+    }
+  }
+
+  /** 断开真实链路并回到演示模式（不会删除浏览器内的加密存储）。 */
+  function disconnectLive(): void {
+    unsubscribe?.();
+    unsubscribe = null;
+    matrixService.stop();
+    resetLiveStatus();
+    clearLiveSession();
+    liveError.value = "";
+    liveNotice.value = "";
+    resetDemo();
+  }
+
   function logout(): void {
+    unsubscribe?.();
+    unsubscribe = null;
+    matrixService.stop();
+    resetLiveStatus();
+    clearLiveSession();
     loggedIn.value = false;
   }
 
@@ -242,16 +370,18 @@ export const useChatStore = defineStore("chat", () => {
     activeRoomId.value = demoConversations[0].id;
     replyToId.value = null;
     searchQuery.value = "";
+    roomOverrides.value = {};
   }
 
   return {
     loggedIn, displayName, contacts, conversations, messages, devices,
     activeRoomId, replyToId, searchQuery, settings,
+    liveBusy, liveError, liveNotice, isLive, meId,
     sortedConversations, unreadTotal, activeConversation, activeMessages,
     replyToMessage, searchResults,
     lastMessage, roomOf, contactOf, messageById, markRead, openRoom,
     sendText, sendAttachment, revoke, setReplyTo, addReaction,
     togglePin, toggleMute, verifyDevice, setSetting,
-    loginDemo, logout, resetDemo,
+    loginDemo, connectLive, disconnectLive, logout, resetDemo, syncFromLive,
   };
 });

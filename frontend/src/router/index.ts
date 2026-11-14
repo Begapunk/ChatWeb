@@ -5,7 +5,11 @@ import ChatView from "../views/ChatView.vue";
 import SearchView from "../views/SearchView.vue";
 import SettingsView from "../views/SettingsView.vue";
 
-// 演示模式默认已「登录」，打开首页即是会话列表；登录/邀请码注册界面从设置页进入。
+// 两种模式共用同一套路由：
+// - demo：纯内存演示数据，打开首页即是会话列表，用于无服务器试用界面；
+// - live：真实 Synapse + Rust Crypto WASM，凭据只在内存，从 /login「连接真实服务器」进入。
+// 整页刷新导致 live 会话失效时，由 main.ts 的一次性守卫强制重定向回 /login 并给出原因提示，
+// 绝不静默回退演示假数据。
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [

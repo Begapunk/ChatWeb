@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import type { Message } from "../types";
+import { matrixServiceStatus } from "../services/matrix";
 
 const props = defineProps<{
   replyTo?: Message;
@@ -16,6 +17,7 @@ const emit = defineEmits<{
 }>();
 
 const draft = ref<string>("");
+const isLive = computed<boolean>(() => matrixServiceStatus.mode === "live");
 
 function submit(): void {
   const text = draft.value.trim();
@@ -68,7 +70,9 @@ function onKeydown(event: KeyboardEvent): void {
       </button>
     </div>
 
-    <p class="composer__note">演示模式 · 消息不会离开此浏览器，刷新即清空</p>
+    <p class="composer__note">
+      {{ isLive ? "真实链路 · 消息经 Megolm 端到端加密后发送" : "演示模式 · 消息不会离开此浏览器，刷新即清空" }}
+    </p>
   </div>
 </template>
 
