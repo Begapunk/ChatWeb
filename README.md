@@ -11,13 +11,24 @@
 ## 当前状态
 
 - **M1 服务端与准入：已通过验收**（M1-R1 变更后回归 **172/172**）
-- **M2：工具链已锁定、前端脚手架与设计系统已落地（typecheck/build 通过）；MatrixService 与界面待开发 —— 不宣称完成**
+- **M2 演示版界面：已交付，可直接试用**（`typecheck` / `build` / 真实 Chrome 烟测 **36/36**）；
+  **真实 MatrixService / E2EE 未接线，M2 尚未完成** —— 演示版不连 Synapse、不产生密钥、消息仅存浏览器内存
+
+> **试用 demo**（纯前端，无需 Docker）：
+> ```bash
+> cd frontend && npm ci && npm run build
+> npm run preview -- --host 127.0.0.1 --port 4173 --strictPort
+> # 浏览器打开 http://127.0.0.1:4173
+> ```
+> 详见 [frontend/README.md](frontend/README.md) 与 [docs/M2-DEMO-REPORT.md](docs/M2-DEMO-REPORT.md)。
+> 这是界面演示，**不是端到端加密通讯工具**，请勿用于任何真实私密对话。
 
 | 文档 | 说明 |
 |---|---|
 | [docs/M1-AMENDMENT-UNLIMITED.md](docs/M1-AMENDMENT-UNLIMITED.md) | **现行准入语义与权威变更清单**（回改文件 + 172/172 回归证据） |
+| [docs/M2-DEMO-REPORT.md](docs/M2-DEMO-REPORT.md) | **M2 演示版交付与验收报告**：36/36 烟测、缺陷修复、安全边界、试用方法 |
 | [docs/M2-KICKOFF-CHECK.md](docs/M2-KICKOFF-CHECK.md) | M2 开工首检 + 脚手架验证：TS7/vue-tsc 不兼容实证，TypeScript 锁定 5.9.3 |
-| [frontend/README.md](frontend/README.md) | 前端命令、目录、设计系统、PWA 缓存红线与待办 |
+| [frontend/README.md](frontend/README.md) | 前端试用/命令、目录、设计系统、PWA 缓存红线与剩余待办 |
 | [docs/M1-TEST-REPORT.md](docs/M1-TEST-REPORT.md) | M1 **变更前**原始验收（170/170）；引用须注明版本 |
 | [docs/PRD-M1.md](docs/PRD-M1.md) · [docs/DESIGN-M1.md](docs/DESIGN-M1.md) | M1 基线（顶部均有 M1-R1 变更通告，原文保留可追溯） |
 | [docs/DESIGN-M1-CHECKS.md](docs/DESIGN-M1-CHECKS.md) | §10 复核结论 |
@@ -28,12 +39,13 @@
 
 M1 已交付：Synapse(PG16) + Caddy + FastAPI 邀请服务的 Compose 部署、邀请码准入闭环
 （哈希存储 / 过期 / 尝试次数 / 一次性 / 并发原子性）、注册后自动进入固定加密房间、
-部署检查脚本与 A–J 集成测试套件。**产品 UI 尚未开发**（M2 起 Vue PWA）。
+部署检查脚本与 A–J 集成测试套件。M2 已产出**可试用的前端界面演示**，
+但与上述服务端的真实连接（MatrixService / E2EE）尚未接线。
 
 ## 目录
 
 ```
-frontend/               Vue 3 PWA 客户端（M2，待建）
+frontend/               Vue 3 PWA 客户端（M2 演示版界面已交付；真实加密链路待接线）
 backend/invite-service/ FastAPI 邀请管理 API（M1 已实现）
 infra/                  synapse / postgres / caddy 配置（livekit / coturn 为 M6 预留）
 scripts/                部署、检查、测试编排（render 为 Python 标准库，其余 bash）
@@ -90,3 +102,5 @@ node src/t06-browser-synapse.mjs # 双浏览器实例 E2EE
 - 附件：Matrix 规范 EncryptedFile（AES-256-CTR + SHA-256），密钥随加密房间事件分发。
 - 通话（M6）：MatrixRTC + Element Call + LiveKit，媒体 E2EE 以实测为准；TLS/DTLS 不等于 E2EE。
 - 清除浏览器数据前必须完成密钥备份，否则可能永久失去历史消息解密能力。
+- **当前 M2 演示版不满足以上任何一条运行时保证**：它不产生密钥、不加密、不联网，
+  仅用于验证界面与交互。真实保证以双浏览器 E2EE 回归通过为准。

@@ -54,7 +54,7 @@
 |---|---|---|
 | vitest | 5.1.0 | 单元测试（peers: vite ^6.4–^8 ✓）；**安装须用在线元数据**（`--prefer-offline` 会因过期 packument 误报 `@vitest/mocker@5.1.0` 不存在），见 `frontend/README.md` |
 | @playwright/test | 1.65.1 | 端到端多浏览器测试（M2 起，可用本机 Chrome channel） |
-| playwright-core | 1.65.1 | M0 已用：channel:"chrome" 驱动本机 Chrome 157，免浏览器下载 |
+| playwright-core | 1.65.1 | M0 已用；**M2 demo 起同时精确锁定为 `frontend` devDependency**，用于 `frontend/e2e/demo-smoke.mjs` 的 36 项真实 Chrome 烟测（免浏览器下载，直接指向本机 `chrome.exe`），见 `docs/M2-DEMO-REPORT.md` |
 | fake-indexeddb | 6.2.8 | Node 环境模拟 IndexedDB（M0 已用） |
 | esbuild | 0.28.2 | M0 浏览器验证打包 |
 

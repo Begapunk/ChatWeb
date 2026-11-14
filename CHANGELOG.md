@@ -124,6 +124,46 @@
 ### Not done（明确不宣称完成）
 - MatrixService、登录/邀请注册、会话列表、聊天界面、单元测试、双浏览器 E2E 均未创建。
 
+## [0.4.0-m2-demo] - 2026-11-14
+
+### Added（可试用的演示版界面，应用户要求）
+- `frontend/src/`：本地演示数据 `data/demo.ts`、类型 `types.ts`、内存状态层 `stores/chat.ts`、
+  路由 `router/index.ts`、真实链路状态占位 `services/matrix.ts`（`implemented:false`、
+  `e2ee:false`）、`DemoBadge` / `Avatar` / `MessageBubble` / `Composer` 组件，
+  `Login` / `Conversations` / `Chat` / `Search` / `Settings` 五个视图。
+- `App.vue` 改为演示外壳：顶栏演示徽章、底部三 tab 导航、聊天页全屏布局；`main.ts` 接入 `router`。
+- 功能（演示级）：会话列表、私聊/群聊、消息时间、发送/已送达/已读、回复、撤回、表情、
+  图片/文件/语音占位、附件、搜索、置顶/静音、主题切换、设备/安全/通知/资料/关于设置、
+  登录与邀请码注册表单交互、演示数据重置。
+- `frontend/e2e/demo-smoke.mjs`：36 项真实 Chrome 烟测（`npm run smoke`），
+  新增 `playwright-core 1.65.1` 精确锁定（已入 lockfile）。
+- `docs/M2-DEMO-REPORT.md`：交付与验收报告（范围边界、构建门禁、36 项逐项结果、
+  缺陷修复、截图证据、M2 剩余工程）。
+
+### Fixed（烟测抓到的真实 UI 缺陷）
+- `UpdatePrompt.vue` 的「已可离线使用」常驻底部浮层在 390px 视口下压住输入区与底部导航，
+  `intercepts pointer events`，真实用户点不到「发送 / 文件 / 语音 / tab」。
+  首轮烟测 S14–S22、S24 共 10 项失败，S25–S36 因累计 30s 点击超时中断。
+  修复：信息提示改为顶部 3.2s 自动消失且 `pointer-events:none` 的 toast；
+  仅 `needRefresh` 显示带按钮浮层（容器穿透、仅按钮可点）并上移避开导航；卸载清理定时器。
+  烟测默认超时收紧到 10s。修复后 **36/36 通过**。
+- 删除已无引用且内容过时的 `BootView.vue`（脚手架自检页）。
+
+### Verified（真实执行）
+- `npm run typecheck` exit 0；`npm run build` exit 0（64 modules，JS 136.76 kB / CSS 27.68 kB，
+  PWA precache 7 项 / 167.39 KiB）。
+- `npm run smoke`：**36/36 通过，0 失败**；390×844 @2x 真实 Chrome；
+  S33 `requests=28, forbidden=0`（无 `/_matrix/`、`/invite-api/`、`/_synapse/` 请求）、
+  S34 `external=0`、S35/S36 无页面异常与 console error。
+- 三张截图已人工核对：会话列表 / 聊天页 / 安全中心，无明显重叠、裁切或对比度问题。
+
+### Not done（明确不宣称完成）
+- **真实 MatrixService、`initRustCrypto`、Rust Crypto WASM、任何密钥均不存在**；
+  未连 Synapse、未接邀请码 API、未自动入房；消息只在浏览器内存，刷新即清空。
+- 端到端加密、密钥备份恢复、跨签名设备验证、双浏览器 E2EE 密文证明、单元测试、
+  Web Push、通话均未实现。界面「已验证设备 / 加密」字样仅为布局占位。
+- 因此 **M2 里程碑仍未完成**；本次交付的是可试用的 UI demo，不是加密通讯工具。
+
 ## [0.0.1-m0] - 2026-11-14
 
 ### Added
