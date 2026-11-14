@@ -1,0 +1,63 @@
+# Aether homeserver 配置模板 — 由 scripts/render-synapse-config.py 渲染到
+# infra/synapse/data/homeserver.yaml（gitignore）。不要手改渲染产物。
+# 键名均按 Synapse v1.165.0 镜像源码/官方文档逐项复核（docs/DESIGN-M1-CHECKS.md §键名核查）。
+
+server_name: "{{SYNAPSE_SERVER_NAME}}"
+pid_file: /data/homeserver.pid
+public_baseurl: "{{SYNAPSE_PUBLIC_BASEURL}}"
+
+listeners:
+  - port: 8008
+    tls: false
+    type: http
+    x_forwarded: true
+    bind_addresses:
+      - "::"
+      - "0.0.0.0"
+    resources:
+      - names: [client]
+        compress: false
+
+database:
+  # 源码实证：仅支持 sqlite3 | psycopg2；镜像内 psycopg2 2.9.11
+  name: psycopg2
+  args:
+    user: "{{POSTGRES_USER}}"
+    password: "{{POSTGRES_PASSWORD}}"
+    database: "{{POSTGRES_DB}}"
+    host: postgres
+    port: 5432
+    cp_min: 5
+    cp_max: 10
+
+registration_shared_secret: "{{SYNAPSE_REGISTRATION_SHARED_SECRET}}"
+macaroon_secret_key: "{{SYNAPSE_MACARON_SECRET_KEY}}"
+form_secret: "{{SYNAPSE_FORM_SECRET}}"
+signing_key_path: "/data/{{SYNAPSE_SERVER_NAME}}.signing.key"
+log_config: "/data/aether-synapse.log.config"
+media_store_path: /data/media_store
+report_stats: {{SYNAPSE_REPORT_STATS}}
+
+# ---- 注册准入（P0-2 / P0-4）----
+enable_registration: true
+registration_requires_token: true
+enable_registration_without_verification: false
+
+# ---- 安全基线（P0-2）----
+# 禁访客：实际键名为 allow_guest_access（源码复核；设计文档 §2.2 的 enable_guests 系笔误）
+allow_guest_access: false
+# 空表 = 与所有服务器断绝联邦（官方推荐的关联邦写法）
+federation_domain_whitelist: []
+# 不向 matrix.org（或任何密钥服务器）发送密钥/目录请求
+trusted_key_servers: []
+allow_public_rooms_over_federation: false
+allow_public_rooms_without_auth: false
+# 拒绝一切向公开房间目录的发布（源码复核：空规则列表即 deny-all）
+room_list_publication_rules: []
+serve_server_wellknown: false
+admin_contact: "mailto:{{OPERATOR_EMAIL}}"
+
+# ---- 媒体限制（M4 复核再调）----
+max_upload_size: 20M
+max_image_pixels: "32M"
+dynamic_thumbnails: false

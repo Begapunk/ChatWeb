@@ -1,0 +1,21 @@
+# Aether 本地测试 profile — 叠加于 docker-compose.yml 之上：
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml --env-file .env.test up -d
+# 语义 = 生产拓扑的忠实子集，仅 4 项差异（见 docs/DEPLOY.md）：
+#   1) Caddy 用 Caddyfile.local（https://127.0.0.1 + tls internal 自签）
+#   2) 端口全部只绑 127.0.0.1（含 synapse:8008 / invite:8000 测试直连回环）
+#   3) server_name / public_baseurl 由 .env.test 与渲染脚本 --local 控制
+#   4) TLS 为内建 CA 自签证书，测试须用「仅限该请求」的独立 https Agent（R3.5，禁全局关校验）
+services:
+  synapse:
+    ports:
+      # 测试直连内网跑 HTTP 层用例（等价服务器本机回环语义；G 用例仍全部经 Caddy）
+      - "127.0.0.1:8008:8008"
+
+  caddy:
+    ports: !override
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:443:443"
+    volumes: !override
+      - aether-caddy-data:/data
+      - aether-caddy-config:/config
+      - ./infra/caddy/Caddyfile.local:/etc/caddy/Caddyfile:ro

@@ -1,0 +1,145 @@
+{
+  "test": "t02-sdk-crypto-init",
+  "timestamp": "2026-11-14T08:40:08.398Z",
+  "node": "v24.18.0",
+  "total": 27,
+  "passed": 27,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "initRustCrypto() resolves with encrypted IndexedDB store",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "getCrypto() returns CryptoApi",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CryptoApi.getVersion() exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CryptoApi.getOwnDeviceKeys() exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CryptoApi.isEncryptionEnabledInRoom() exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CryptoApi.getUserDeviceInfo() exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CryptoApi.setDeviceVerified() exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CryptoApi.setDeviceBlocked() exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CryptoApi.crossSignDevice() exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CryptoApi.bootstrapCrossSigning() exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CryptoApi.bootstrapSecretStorage() exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CryptoApi.getCrossSigningStatus() exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CryptoApi.createRecoveryKeyFromPassphrase() exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CryptoApi.requestDeviceVerification() exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CryptoApi.requestOwnUserVerification() exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CryptoApi.getKeyBackupInfo() exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CryptoApi.restoreKeyBackupWithPassphrase() exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CryptoApi.resetKeyBackup() exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CryptoApi.deleteKeyBackupVersion() exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CryptoApi.exportRoomKeys() exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "CryptoApi.importRoomKeysAsJson() exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "getOwnDeviceKeys() returns ed25519+curve25519",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "matrixrtc subpath exports MatrixRTCSession",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "matrixrtc subpath exports MatrixRTCSessionManager",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "client.matrixRTC accessor exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "MatrixRTCSession.join is a function",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "MatrixRTCSession.leave is a function",
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}

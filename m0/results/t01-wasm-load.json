@@ -1,0 +1,40 @@
+{
+  "test": "t01-wasm-load",
+  "timestamp": "2026-11-14T08:40:07.889Z",
+  "node": "v24.18.0",
+  "total": 6,
+  "passed": 6,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "wasm initAsync() resolves",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "OlmMachine exposes identity keys",
+      "ok": true,
+      "detail": "ed25519=WncueBTDk0..."
+    },
+    {
+      "name": "IndexedDB store persists identity across reopen (passphrase)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "IndexedDB store opens with raw 32-byte key",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "key-encrypted store persists identity across reopen",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "store opened with wrong key does not yield original identity",
+      "ok": true,
+      "detail": "rejected: An object failed to be decrypted while unpickling"
+    }
+  ]
+}

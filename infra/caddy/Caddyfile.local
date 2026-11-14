@@ -1,0 +1,23 @@
+# Aether 本地测试入口 — 生产 Caddyfile 的忠实子集，仅 TLS 来源不同：
+# tls internal（Caddy 内建 CA 为 127.0.0.1 签发自签证书，含 IP SAN）。
+# 测试端必须用「仅限该请求」的独立 https Agent 接受该自签证书（R3.5），
+# 禁止 NODE_TLS_REJECT_UNAUTHORIZED=0 等全局关闭校验的行为。
+{
+	local_certs
+	# 实测（10.8）：IP 站点对「不携带 SNI 的客户端」（Windows schannel curl、
+	# Python 对 IP 字面量不发 SNI）握手报 internal error；default_sni 兜底。
+	default_sni 127.0.0.1
+}
+
+https://127.0.0.1 {
+	tls internal
+	handle /_matrix/* {
+		reverse_proxy synapse:8008
+	}
+	handle /invite-api/* {
+		reverse_proxy invite-service:8000
+	}
+	handle {
+		respond 404
+	}
+}

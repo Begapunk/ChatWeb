@@ -1,0 +1,85 @@
+{
+  "test": "t03-e2ee-local",
+  "timestamp": "2026-11-14T08:40:54.811Z",
+  "node": "v24.18.0",
+  "total": 15,
+  "passed": 15,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "key upload requests generated for all machines",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "keys query answered",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "getMissingSessions produced a keys claim request",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "one-time key claim answered",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "alice can resolve bob's Device object",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Olm ciphertext does not contain plaintext",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Olm content uses m.olm.v1.curve25519-aes-sha2",
+      "ok": true,
+      "detail": "m.olm.v1.curve25519-aes-sha2"
+    },
+    {
+      "name": "bob decrypted the Olm to-device event",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "decrypted to-device body matches plaintext",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "shareRoomKey produced to-device requests",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "room key delivered to bob",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Megolm ciphertext does not contain plaintext",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "room content uses m.megolm.v1.aes-sha2",
+      "ok": true,
+      "detail": "m.megolm.v1.aes-sha2"
+    },
+    {
+      "name": "bob decrypted the Megolm room event",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "third party without room key cannot decrypt",
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}

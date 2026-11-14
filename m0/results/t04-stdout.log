@@ -1,0 +1,12 @@
+PASS esbuild bundle + wasm asset prepared
+PASS Chrome user agent -- Chrome/157.0.0.0
+FAIL no page/console errors -- Failed to load resource: the server responded with a status of 404 (Not Found) | Failed to load resource: the server responded with a status of 404 (Not Found)
+FAIL no 404 resources -- /pkg/matrix_sdk_crypto_wasm_bg.wasm,/favicon.ico
+PASS browser payload completed
+PASS [browser] IndexedDB available
+PASS [browser] WebCrypto subtle available
+PASS [browser] WebAssembly available
+PASS [browser] serviceWorker container available
+FAIL [browser] fatal -- Failed to execute 'compile' on 'WebAssembly': HTTP status code is not ok
+
+[t04-browser-check] 7/10 checks passed

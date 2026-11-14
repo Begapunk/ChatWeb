@@ -1,0 +1,28 @@
+# Aether Synapse 日志配置（渲染自本模板到 infra/synapse/data/aether-synapse.log.config）
+# 日志红线（R5.3）：root INFO；不降到 DEBUG（DEBUG 会打印事件内容/access token）；
+# access 日志仅 method/path/status/耗时，不记录请求体。基线取自官方 generate 产物。
+version: 1
+
+formatters:
+  precise:
+    format: '%(asctime)s - %(name)s - %(lineno)d - %(levelname)s - %(request)s - %(message)s'
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    formatter: precise
+
+loggers:
+  _placeholder:
+    level: "INFO"
+
+  synapse.storage.SQL:
+    # beware: increasing this to DEBUG will make synapse log sensitive
+    # information such as access tokens.
+    level: INFO
+
+root:
+  level: INFO
+  handlers: [console]
+
+disable_existing_loggers: false

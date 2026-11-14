@@ -1,0 +1,212 @@
+PASS Synapse /versions reachable
+PASS admin registered via shared-secret admin API
+PASS server_version is 1.165.0 -- 1.165.0
+PASS registration token created via admin API
+PASS alice registered with invite token
+PASS bob registered with invite token
+PASS exhausted invite token rejects third registration -- status=401
+PASS encrypted room created
+PASS bob joined the room
+[RustBackupManager] Checking key backup status...
+[RustBackupManager] No key backup present on server: not enabling key backup
+sync Getting saved sync token...
+sync Getting push rules...
+sync Got saved sync token
+sync Got reply from saved sync, exists? false
+PollingCachedValue<RTCTransports> Error fetching server value for M_UNRECOGNIZED: MatrixError: [404] Server does not support RTC transports
+PollingCachedValue<RTCTransports> Cached value fetch on start did fail M_UNRECOGNIZED: MatrixError: [404] Server does not support RTC transports
+    at MatrixClient._unstable_getRTCTransports (file:///C:/Users/86189/.qwenworkcn/workspace/2026-11-14/mwg539kcntaxuo6j/outputs/aether/m0/node_modules/matrix-js-sdk/lib/client.js:4783:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async PollingCachedValue.fetchWithRetryPolicy (file:///C:/Users/86189/.qwenworkcn/workspace/2026-11-14/mwg539kcntaxuo6j/outputs/aether/m0/node_modules/matrix-js-sdk/lib/pollingCachedValue.js:142:16)
+    at async PollingCachedValue.doFetch (file:///C:/Users/86189/.qwenworkcn/workspace/2026-11-14/mwg539kcntaxuo6j/outputs/aether/m0/node_modules/matrix-js-sdk/lib/pollingCachedValue.js:106:21) {
+  httpStatus: 404,
+  httpHeaders: undefined,
+  errcode: 'M_UNRECOGNIZED',
+  error: 'Server does not support RTC transports',
+  data: {
+    errcode: 'M_UNRECOGNIZED',
+    error: 'Server does not support RTC transports'
+  },
+  url: undefined,
+  event: undefined
+}
+Missing default global override push rule .m.rule.contains_display_name
+Missing default global override push rule .m.rule.roomnotif
+Adding default global override push rule .org.matrix.msc3786.rule.room.server_acl
+Adding default global underride push rule .org.matrix.msc3914.rule.room.call
+sync Got push rules
+sync Prepare lazy loading for sync...
+sync Storing client options...
+sync Stored client options
+sync Getting filter...
+sync Sending initial sync request...
+sync Waiting for saved sync before starting sync processing...
+Missing default global override push rule .m.rule.contains_display_name
+Missing default global override push rule .m.rule.roomnotif
+Adding default global override push rule .org.matrix.msc3786.rule.room.server_acl
+Adding default global underride push rule .org.matrix.msc3914.rule.room.call
+[MatrixRTCSession !FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo m.call#ROOM] No membership changes detected for room !FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo
+[RustBackupManager] Checking key backup status...
+[RustBackupManager] No key backup present on server: not enabling key backup
+sync Getting saved sync token...
+sync Getting push rules...
+sync Got saved sync token
+sync Got reply from saved sync, exists? false
+PollingCachedValue<RTCTransports> Error fetching server value for M_UNRECOGNIZED: MatrixError: [404] Server does not support RTC transports
+PollingCachedValue<RTCTransports> Cached value fetch on start did fail M_UNRECOGNIZED: MatrixError: [404] Server does not support RTC transports
+    at MatrixClient._unstable_getRTCTransports (file:///C:/Users/86189/.qwenworkcn/workspace/2026-11-14/mwg539kcntaxuo6j/outputs/aether/m0/node_modules/matrix-js-sdk/lib/client.js:4783:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async PollingCachedValue.fetchWithRetryPolicy (file:///C:/Users/86189/.qwenworkcn/workspace/2026-11-14/mwg539kcntaxuo6j/outputs/aether/m0/node_modules/matrix-js-sdk/lib/pollingCachedValue.js:142:16)
+    at async PollingCachedValue.doFetch (file:///C:/Users/86189/.qwenworkcn/workspace/2026-11-14/mwg539kcntaxuo6j/outputs/aether/m0/node_modules/matrix-js-sdk/lib/pollingCachedValue.js:106:21) {
+  httpStatus: 404,
+  httpHeaders: undefined,
+  errcode: 'M_UNRECOGNIZED',
+  error: 'Server does not support RTC transports',
+  data: {
+    errcode: 'M_UNRECOGNIZED',
+    error: 'Server does not support RTC transports'
+  },
+  url: undefined,
+  event: undefined
+}
+Missing default global override push rule .m.rule.contains_display_name
+Missing default global override push rule .m.rule.roomnotif
+Adding default global override push rule .org.matrix.msc3786.rule.room.server_acl
+Adding default global underride push rule .org.matrix.msc3914.rule.room.call
+sync Got push rules
+sync Prepare lazy loading for sync...
+sync Storing client options...
+sync Stored client options
+sync Getting filter...
+sync Sending initial sync request...
+sync Waiting for saved sync before starting sync processing...
+Missing default global override push rule .m.rule.contains_display_name
+Missing default global override push rule .m.rule.roomnotif
+Adding default global override push rule .org.matrix.msc3786.rule.room.server_acl
+Adding default global underride push rule .org.matrix.msc3914.rule.room.call
+PASS both devices completed initial sync with Rust crypto
+[MatrixRTCSession !FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo m.call#ROOM] No membership changes detected for room !FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo
+PASS bob sees the encrypted room
+PASS room reports encryption enabled
+PASS mutual device visibility established before sending
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873363.0: Starting encryption
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873363.0: [Perf]: loadMembersIfNeeded: updateTrackedUsers took 1ms
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873363.0: Updated tracked users
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873363.0: Processing outgoing requests
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873363.0: [Perf]: doProcessOutgoingRequests took 0ms
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873363.0: Encrypting for users (shouldEncryptForInvitedMembers: true): [ '@alicee6e032:aether.test (join)', '@bobe6e032:aether.test (join)' ]
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873363.0: Checking for missing Olm sessions
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873363.0: Making /keys/claim request
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873363.0: Olm sessions prepared
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873363.0: [Perf]: ensureSessionsForUsers took 27ms
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873363.0: [Perf]: shareRoomKey took 31ms
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873363.0: [Perf]: ensureEncryptionSession took 61ms
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873363.0: Encrypting actual message content
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873363.0: Encrypted event successfully
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873363.0: [Perf]: encryptEventInner took 4ms
+PASS bob received and decrypted alice's message
+PASS wire event is m.room.encrypted megolm
+PASS wire content contains no plaintext
+PASS non-member admin cannot read room event via client API -- status=404
+PASS server-stored event is ciphertext
+PASS server-stored event contains no plaintext
+sync SyncApi.stop
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873928.1: Starting encryption
+sync Sync no longer running: exiting
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873928.1: Processing outgoing requests in background
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873928.1: Encrypting for users (shouldEncryptForInvitedMembers: true): [ '@alicee6e032:aether.test (join)', '@bobe6e032:aether.test (join)' ]
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873928.1: Checking for missing Olm sessions
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873928.1: Olm sessions prepared
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873928.1: [Perf]: ensureSessionsForUsers took 1ms
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873928.1: [Perf]: shareRoomKey took 3ms
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873928.1: [Perf]: ensureEncryptionSession took 5ms
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873928.1: Encrypting actual message content
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873928.1: Encrypted event successfully
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873928.1: [Perf]: encryptEventInner took 1ms
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873969.2: Starting encryption
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873969.2: Processing outgoing requests in background
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873969.2: Encrypting for users (shouldEncryptForInvitedMembers: true): [ '@alicee6e032:aether.test (join)', '@bobe6e032:aether.test (join)' ]
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873969.2: Checking for missing Olm sessions
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873969.2: Olm sessions prepared
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873969.2: [Perf]: ensureSessionsForUsers took 1ms
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873969.2: [Perf]: shareRoomKey took 2ms
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873969.2: [Perf]: ensureEncryptionSession took 3ms
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873969.2: Encrypting actual message content
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873969.2: Encrypted event successfully
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646873969.2: [Perf]: encryptEventInner took 1ms
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646874011.3: Starting encryption
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646874011.3: Processing outgoing requests in background
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646874011.3: Encrypting for users (shouldEncryptForInvitedMembers: true): [ '@alicee6e032:aether.test (join)', '@bobe6e032:aether.test (join)' ]
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646874011.3: Checking for missing Olm sessions
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646874011.3: Olm sessions prepared
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646874011.3: [Perf]: ensureSessionsForUsers took 1ms
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646874011.3: [Perf]: shareRoomKey took 1ms
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646874011.3: [Perf]: ensureEncryptionSession took 3ms
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646874011.3: Encrypting actual message content
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646874011.3: Encrypted event successfully
+[!FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo encryption] m1794646874011.3: [Perf]: encryptEventInner took 3ms
+[RustBackupManager] Checking key backup status...
+[RustBackupManager] No key backup present on server: not enabling key backup
+sync Getting saved sync token...
+sync Getting push rules...
+sync Got saved sync token
+sync Got reply from saved sync, exists? false
+PollingCachedValue<RTCTransports> Error fetching server value for M_UNRECOGNIZED: MatrixError: [404] Server does not support RTC transports
+PollingCachedValue<RTCTransports> Cached value fetch on start did fail M_UNRECOGNIZED: MatrixError: [404] Server does not support RTC transports
+    at MatrixClient._unstable_getRTCTransports (file:///C:/Users/86189/.qwenworkcn/workspace/2026-11-14/mwg539kcntaxuo6j/outputs/aether/m0/node_modules/matrix-js-sdk/lib/client.js:4783:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async PollingCachedValue.fetchWithRetryPolicy (file:///C:/Users/86189/.qwenworkcn/workspace/2026-11-14/mwg539kcntaxuo6j/outputs/aether/m0/node_modules/matrix-js-sdk/lib/pollingCachedValue.js:142:16)
+    at async PollingCachedValue.doFetch (file:///C:/Users/86189/.qwenworkcn/workspace/2026-11-14/mwg539kcntaxuo6j/outputs/aether/m0/node_modules/matrix-js-sdk/lib/pollingCachedValue.js:106:21) {
+  httpStatus: 404,
+  httpHeaders: undefined,
+  errcode: 'M_UNRECOGNIZED',
+  error: 'Server does not support RTC transports',
+  data: {
+    errcode: 'M_UNRECOGNIZED',
+    error: 'Server does not support RTC transports'
+  },
+  url: undefined,
+  event: undefined
+}
+Missing default global override push rule .m.rule.contains_display_name
+Missing default global override push rule .m.rule.roomnotif
+Adding default global override push rule .org.matrix.msc3786.rule.room.server_acl
+Adding default global underride push rule .org.matrix.msc3914.rule.room.call
+sync Got push rules
+sync Prepare lazy loading for sync...
+sync Storing client options...
+sync Stored client options
+sync Getting filter...
+sync Sending initial sync request...
+sync Waiting for saved sync before starting sync processing...
+Missing default global override push rule .m.rule.contains_display_name
+Missing default global override push rule .m.rule.roomnotif
+Adding default global override push rule .org.matrix.msc3786.rule.room.server_acl
+Adding default global underride push rule .org.matrix.msc3914.rule.room.call
+[MatrixRTCSession !FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo m.call#ROOM] No membership changes detected for room !FYqKSD06dKLSAMo5PUFshooM6-WgzzbMmmnL0Y5ARqo
+WARN matrix_sdk_crypto::olm::account: Failed to decrypt a pre-key message with the corresponding session
+    session_id="nQE6d8lJT7+lN5JK0VbsF0h/Kkbcz42QDQezjs45b/w"
+    at /home/runner/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/matrix-sdk-crypto-0.19.1/src/olm/account.rs:1389
+    in matrix_sdk_crypto::olm::account::decrypt_and_parse_olm_message with sender="@alicee6e032:aether.test" sender_key="curve25519:nxcXUe5TwZGF1gQQ3EihMRgAqiP9fIUd7h6RRT35Y30" PreKey(PreKeyMessage { session_keys: SessionKeys { identity_key: "nxcXUe5TwZGF1gQQ3EihMRgAqiP9fIUd7h6RRT35Y30", base_key: "+8kR+A7N8IcDUE+KwGALP2T1iXjVm0KMadaJu8Jax0g", one_time_key: "tmEHLuPpUG33oBsvSL29kiO7anl0iJCO6vtJUROrI30" }, message: Message { version: 3, ratchet_key: "curve25519:5LWOjgsGIKt9p5ffF2WpGkwpsBP8qpZ7+lXcFXUbbA4", chain_index: 0, .. } }) decryption_settings=DecryptionSettings { sender_device_trust_requirement: Untrusted } session_id="nQE6d8lJT7+lN5JK0VbsF0h/Kkbcz42QDQezjs45b/w"
+    in matrix_sdk_crypto::olm::account::decrypt_olm_v1 with sender_key="curve25519:nxcXUe5TwZGF1gQQ3EihMRgAqiP9fIUd7h6RRT35Y30"
+    in matrix_sdk_crypto::olm::account::decrypt_to_device_event with algorithm="m.olm.v1.curve25519-aes-sha2"
+    in matrix_sdk_crypto::machine::receive_to_device_event with sender="@alicee6e032:aether.test" event_type="m.room.encrypted" message_id="cc1c96c7ebb841439050c8136e197161"
+    in matrix_sdk_crypto::machine::receive_sync_changes
+PASS offline messages synced and decrypted after app restart (persisted crypto store)
+resetCrossSigning: Secret storage is not yet set up; not exporting keys to secret storage yet.
+[RustBackupManager] Checking key backup status...
+[RustBackupManager] No key backup present on server: not enabling key backup
+PASS cross-signing bootstrap succeeded (UIA password)
+PASS server holds alice cross-signing master key
+[RustBackupManager] Found usable key backup v1: enabling key backups
+[RustBackupManager][backupKeysLoop] Starting keys upload loop for backup version 1, but delaying startup by 9121.484705574494ms
+[PerSessionKeyBackupDownloader] Got current backup version from server: 1
+[PerSessionKeyBackupDownloader] Not checking key backup for session (no decryption key)
+[PerSessionKeyBackupDownloader] Got current backup version from server: 1
+PASS secret storage ready
+PASS server key backup version exists
+PASS createRecoveryKeyFromPassphrase returns encoded key
+sync SyncApi.stop
+sync SyncApi.stop
+
+[t05-synapse-e2ee] 25/25 checks passed

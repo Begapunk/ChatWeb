@@ -1,0 +1,31 @@
+# dependencies
+node_modules/
+
+# secrets & env (never commit)
+.env
+.env.test
+m1/.env.test
+
+# local artifacts (never commit)
+m0/.env.test
+m0/browser-run/
+m0/m0-chrome-profile-*/
+m0/results/t04-dom.html
+m1/reports/
+.tmp-gen/
+
+# rendered synapse config (contains secrets; signing key & media live here too)
+infra/synapse/data/
+
+# build output
+frontend/dist/
+*.local
+!infra/caddy/Caddyfile.local
+
+# python
+__pycache__/
+*.pyc
+
+# OS / editor
+.DS_Store
+Thumbs.db

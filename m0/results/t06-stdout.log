@@ -1,0 +1,18 @@
+PASS server setup: two users + encrypted room
+PASS sender Chrome: no page errors
+PASS receiver Chrome: no page errors
+PASS [alice-browser] WASM initialized
+PASS [alice-browser] loginWithPassword
+PASS [alice-browser] initial sync PREPARED
+PASS [alice-browser] encrypted room visible
+PASS [alice-browser] peer device keys visible
+PASS [alice-browser] sender sent encrypted event
+PASS [bob-browser] WASM initialized
+PASS [bob-browser] loginWithPassword
+PASS [bob-browser] initial sync PREPARED
+PASS [bob-browser] encrypted room visible
+PASS [bob-browser] receiver decrypted cross-browser message
+PASS [bob-browser] wire type is m.room.encrypted
+PASS [bob-browser] wire content hides plaintext
+
+[t06-browser-synapse] 16/16 checks passed

@@ -1,0 +1,146 @@
+classDiagram
+    direction LR
+
+    class AppConfig {
+        +str invite_db_dsn
+        +str synapse_internal_url
+        +str synapse_admin_username
+        +str synapse_admin_password
+        +bytes invite_hash_pepper
+        +str invite_admin_api_key
+        +int code_ttl_seconds
+        +int default_max_attempts
+        +int max_members
+        +int token_ttl_minutes
+        +int poll_seconds
+        +classmethod load() AppConfig
+    }
+
+    class Database {
+        +Pool pool
+        +classmethod create(cfg) Database
+        +async migrate()
+        +async acquire() Connection
+    }
+
+    class MigrationRunner {
+        +Database db
+        +async apply_all()
+    }
+
+    class InviteCodeRepo {
+        +Database db
+        +async create(ttl_seconds, max_attempts, metadata) InviteCode
+        +async find_by_tag_for_update(tag) InviteCode?
+        +async record_failure(code_id) bool
+        +async mark_used_if_unused(code_id) bool
+        +async revoke(code_id) bool
+        +async get(code_id) InviteCode?
+    }
+
+    class QuotaService {
+        +Database db
+        +SynapseAdminClient synapse
+        +async try_acquire_seat() SeatResult
+        +async snapshot() QuotaView
+    }
+
+    class SecurityUtils {
+        +generate_code() String
+        +hash_code(salt, code) String
+        +constant_time_equals(a, b) bool
+        +verify_admin_key(provided) bool
+    }
+
+    class InviteService {
+        +InviteCodeRepo codes
+        +QuotaService quota
+        +SynapseAdminClient synapse
+        +SecurityUtils security
+        +async verify(code) Response
+    }
+
+    class SynapseAdminClient {
+        +AsyncClient http
+        +str base_url
+        +async create_registration_token(uses_allowed, expiry_ms) dict
+        +async list_users() list
+        +async shared_secret_register(username, password, admin) dict
+    }
+
+    class MatrixAdminClient {
+        +AsyncClient http
+        +str access_token
+        +async login() void
+        +async create_room(kind) Room
+        +async invite(room_id, user_id) void
+    }
+
+    class RoomInviteService {
+        +MatrixAdminClient matrix
+        +SynapseAdminClient synapse
+        +Database db
+        +async ensure_bootstrap() void
+        +async poll_once() void
+        +async process_jobs() void
+    }
+
+    class InviteCode {
+        +uuid id
+        +String tag
+        +String salt
+        +String code_hash
+        +String status
+        +datetime expires_at
+        +int max_attempts
+        +int attempts
+        +datetime created_at
+        +datetime used_at
+        +json metadata
+    }
+
+    class QuotaCounter {
+        +int id
+        +int max_members
+        +int seats_used
+    }
+
+    class Room {
+        +String room_id
+        +String kind
+        +datetime created_at
+    }
+
+    class InviteJob {
+        +String user_id
+        +String room_id
+        +String status
+        +int attempts
+        +String last_error_code
+    }
+
+    class AuditEvent {
+        +String event_type
+        +uuid code_id
+        +String result
+        +datetime created_at
+    }
+
+    InviteService --> InviteCodeRepo : 校验编排
+    InviteService --> QuotaService : 名额事务
+    InviteService --> SynapseAdminClient : 发码
+    InviteService --> SecurityUtils : 哈希/比较
+    QuotaService --> SynapseAdminClient : 用户数校准
+    QuotaService --> Database : FOR UPDATE 锁
+    InviteCodeRepo --> Database : 状态机迁移
+    RoomInviteService --> MatrixAdminClient : invite/建房
+    RoomInviteService --> SynapseAdminClient : 轮询用户
+    RoomInviteService --> Database : jobs 幂等
+    MatrixAdminClient --> SynapseAdminClient : 同源容器
+    Database --> AppConfig : 连接参数
+    MigrationRunner --> Database : 版本表迁移
+    InviteCodeRepo ..> InviteCode : 存取
+    QuotaService ..> QuotaCounter : 单行锁
+    RoomInviteService ..> Room : rooms 表
+    RoomInviteService ..> InviteJob : 任务表
+    InviteService ..> AuditEvent : 审计

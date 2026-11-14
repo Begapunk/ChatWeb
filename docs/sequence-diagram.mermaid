@@ -1,0 +1,47 @@
+sequenceDiagram
+    actor U as 受邀者(测试脚本)
+    participant CA as Caddy
+    participant INV as 邀请服务 FastAPI
+    participant PG as PG(invite库)
+    participant SY as Synapse
+    participant ADM as 管理员账号(服务内)
+
+    Note over U,ADM: 前置: 自举完成(管理员=1席, 固定加密房间已建)
+
+    U->>CA: POST /invite-api/v1/verify {code}
+    CA->>INV: 转发(唯一暴露的邀请服务路径)
+    INV->>PG: SELECT * FROM invite_codes WHERE tag=? FOR UPDATE
+    alt 过期/终态/哈希不匹配
+        INV->>PG: EXPIRED/BLOCKED 迁移或 attempts+1; COMMIT
+        INV-->>CA: 400 {error: expired|blocked|used|invalid}
+        CA-->>U: 同上
+    else 哈希匹配且 UNUSED
+        INV->>PG: SELECT * FROM quota_counters WHERE id=1 FOR UPDATE
+        INV->>SY: GET /_synapse/admin/v2/users → 正式用户数 n
+        INV->>INV: effective=max(seats_used,n); 漂移回写
+        alt effective ≥ 4
+            INV->>PG: ROLLBACK(码保持 UNUSED)
+            INV-->>CA: 409 {error: quota_exhausted}
+        else 名额可用
+            INV->>SY: POST /_synapse/admin/v1/registration_tokens/new<br/>{uses_allowed:1, expiry_time:+60min}
+            SY-->>INV: {token, pending:0, completed:0}
+            INV->>PG: UPDATE invite_codes→USED WHERE status='UNUSED'(rowcount=1)<br/>quota.seats_used+1; INSERT audit; COMMIT
+            INV-->>CA: 200 {registration_token, token_expires_at}
+            CA-->>U: 同上
+        end
+    end
+
+    U->>CA: POST /_matrix/client/v3/register<br/>{type: m.login.registration_token, token, username, password}
+    CA->>SY: 转发
+    SY-->>U: 200 {user_id, access_token, device_id}(uses_allowed 用尽后他人 401)
+
+    Note over INV,ADM: 轮询(每5s)
+    INV->>SY: GET /_synapse/admin/v2/users → 发现新 MXID
+    INV->>PG: INSERT room_invite_jobs (UNIQUE 幂等)
+    ADM->>SY: POST /rooms/{roomId}/invite {user_id} (逐房间)
+    INV->>PG: jobs→DONE; 审计 invite.done
+
+    U->>SY: 新用户 sync → 收到群聊+私聊房间 invite
+    U->>SY: POST /rooms/{roomId}/join
+    U->>SY: 发送 m.room.encrypted(Megolm 密文)
+    SY-->>ADM: 另一成员(管理员设备) sync 收到密文并解密成功(验收F)

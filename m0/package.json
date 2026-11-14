@@ -1,0 +1,26 @@
+{
+  "name": "aether-m0-verification",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Aether M0 technical verification harness (not the product frontend). Verifies matrix-js-sdk + Rust Crypto WASM + IndexedDB + Synapse E2EE before any UI work.",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@matrix-org/matrix-sdk-crypto-wasm": "18.9.2",
+    "fake-indexeddb": "6.2.8",
+    "matrix-js-sdk": "45.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "playwright-core": "^1.65.1"
+  },
+  "scripts": {
+    "t01": "node src/t01-wasm-load.mjs",
+    "t02": "node src/t02-sdk-crypto-init.mjs",
+    "t03": "node src/t03-e2ee-local.mjs",
+    "t04": "node src/t04-browser-check.mjs",
+    "t05": "node src/t05-synapse-e2ee.mjs"
+  }
+}

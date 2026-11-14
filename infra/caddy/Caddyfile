@@ -1,0 +1,19 @@
+# Aether 生产入口 — Caddy 自动 HTTPS（ACME HTTP-01）。
+# 唯一对外服务：仅 /_matrix/* 与 /invite-api/* 两条路由，其余一律 404。
+# 管理面（/_synapse/*、邀请服务 /admin/*）在 Caddy 层不可达（P0-7，G 验收双向断言）。
+{
+	email {$CADDY_ACME_EMAIL}
+}
+
+{$AETHER_DOMAIN} {
+	handle /_matrix/* {
+		reverse_proxy synapse:8008
+	}
+	handle /invite-api/* {
+		reverse_proxy invite-service:8000
+	}
+	# 兜底：未知路径（含 /_synapse/admin、前端 M2 之前的一切）不路由不泄露
+	handle {
+		respond 404
+	}
+}

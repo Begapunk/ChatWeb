@@ -1,0 +1,45 @@
+{
+  "test": "t03b-attachment-encryption",
+  "timestamp": "2026-11-14T08:40:21.091Z",
+  "node": "v24.18.0",
+  "total": 7,
+  "passed": 7,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "AES-CTR encryption produced ciphertext",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "ciphertext differs from plaintext",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "EncryptedFile has required fields",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "EncryptedFile JSON contains no plaintext",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "SHA-256 integrity hash matches",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "attachment round-trip decrypts to original bytes",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "tampered ciphertext detected by hash",
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "aether-m1-tests",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Aether M1 集成测试（验收 A–J，PRD-M1 §5）",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node tests/run-all.mjs",
+    "test:lifecycle": "node tests/test-lifecycle.mjs",
+    "test:quota": "node tests/test-quota.mjs",
+    "test:exposure": "node tests/test-exposure.mjs",
+    "test:e2ee": "node tests/test-e2ee.mjs",
+    "test:adversarial": "node tests/test-adversarial.mjs"
+  },
+  "dependencies": {
+    "@matrix-org/matrix-sdk-crypto-wasm": "18.9.2",
+    "fake-indexeddb": "6.2.8",
+    "matrix-js-sdk": "45.1.0"
+  }
+}

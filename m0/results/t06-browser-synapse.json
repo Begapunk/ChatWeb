@@ -1,0 +1,90 @@
+{
+  "test": "t06-browser-synapse",
+  "timestamp": "2026-11-14T09:09:07.986Z",
+  "node": "v24.18.0",
+  "total": 16,
+  "passed": 16,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "server setup: two users + encrypted room",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "sender Chrome: no page errors",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "receiver Chrome: no page errors",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[alice-browser] WASM initialized",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[alice-browser] loginWithPassword",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[alice-browser] initial sync PREPARED",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[alice-browser] encrypted room visible",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[alice-browser] peer device keys visible",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[alice-browser] sender sent encrypted event",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[bob-browser] WASM initialized",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[bob-browser] loginWithPassword",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[bob-browser] initial sync PREPARED",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[bob-browser] encrypted room visible",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[bob-browser] receiver decrypted cross-browser message",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[bob-browser] wire type is m.room.encrypted",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[bob-browser] wire content hides plaintext",
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}

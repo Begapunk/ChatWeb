@@ -1,0 +1,83 @@
+{
+  "alice": {
+    "parsed": {
+      "done": true,
+      "checks": [
+        {
+          "name": "WASM initialized",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "loginWithPassword",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "initial sync PREPARED",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "encrypted room visible",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "peer device keys visible",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "sender sent encrypted event",
+          "ok": true,
+          "detail": ""
+        }
+      ]
+    },
+    "errors": []
+  },
+  "bob": {
+    "parsed": {
+      "done": true,
+      "checks": [
+        {
+          "name": "WASM initialized",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "loginWithPassword",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "initial sync PREPARED",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "encrypted room visible",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "receiver decrypted cross-browser message",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "wire type is m.room.encrypted",
+          "ok": true,
+          "detail": ""
+        },
+        {
+          "name": "wire content hides plaintext",
+          "ok": true,
+          "detail": ""
+        }
+      ]
+    },
+    "errors": []
+  }
+}

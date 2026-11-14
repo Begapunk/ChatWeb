@@ -1,0 +1,135 @@
+{
+  "test": "t05-synapse-e2ee",
+  "timestamp": "2026-11-14T09:01:16.467Z",
+  "node": "v24.18.0",
+  "total": 25,
+  "passed": 25,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "Synapse /versions reachable",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "admin registered via shared-secret admin API",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "server_version is 1.165.0",
+      "ok": true,
+      "detail": "1.165.0"
+    },
+    {
+      "name": "registration token created via admin API",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "alice registered with invite token",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "bob registered with invite token",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "exhausted invite token rejects third registration",
+      "ok": true,
+      "detail": "status=401"
+    },
+    {
+      "name": "encrypted room created",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "bob joined the room",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "both devices completed initial sync with Rust crypto",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "bob sees the encrypted room",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "room reports encryption enabled",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "mutual device visibility established before sending",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "bob received and decrypted alice's message",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "wire event is m.room.encrypted megolm",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "wire content contains no plaintext",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "non-member admin cannot read room event via client API",
+      "ok": true,
+      "detail": "status=404"
+    },
+    {
+      "name": "server-stored event is ciphertext",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "server-stored event contains no plaintext",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "offline messages synced and decrypted after app restart (persisted crypto store)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "cross-signing bootstrap succeeded (UIA password)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "server holds alice cross-signing master key",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "secret storage ready",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "server key backup version exists",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "createRecoveryKeyFromPassphrase returns encoded key",
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}

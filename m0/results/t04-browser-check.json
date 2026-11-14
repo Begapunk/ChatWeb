@@ -1,0 +1,80 @@
+{
+  "test": "t04-browser-check",
+  "timestamp": "2026-11-14T09:07:44.829Z",
+  "node": "v24.18.0",
+  "total": 14,
+  "passed": 14,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "esbuild bundle + wasm asset prepared",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Chrome user agent",
+      "ok": true,
+      "detail": "Chrome/157.0.0.0"
+    },
+    {
+      "name": "no page/console errors (resource 404s tracked separately)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no 404 resources (favicon excluded)",
+      "ok": true,
+      "detail": "/favicon.ico"
+    },
+    {
+      "name": "browser payload completed",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[browser] IndexedDB available",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[browser] WebCrypto subtle available",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[browser] WebAssembly available",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[browser] serviceWorker container available",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[browser] WASM initAsync in Chrome",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[browser] initRustCrypto in Chrome",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[browser] real IndexedDB persistence across client re-init",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[browser] browser Olm ciphertext hides plaintext",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "[browser] browser Olm round-trip decrypts",
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}

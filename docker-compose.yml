@@ -1,0 +1,140 @@
+# Aether M1 部署编排 — 生产 profile 基线
+# 本地测试形态叠加 docker-compose.local.yml（见 docs/DEPLOY.md）。
+# 机密一律来自 .env（gitignore）；compose 只注入各服务所需的最小子集。
+name: aether
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: ${REGISTRY_MIRROR:-docker.1ms.run}/library/postgres:16-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-synapse}
+      POSTGRES_USER: ${POSTGRES_USER:-synapse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      # Synapse 要求 C collation（官方 docs/postgres.md；实测 en_US.utf8 会被拒启动）
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
+      TZ: ${TZ:-Asia/Shanghai}
+      # 邀请服务库的角色/密码，仅供 init 脚本（infra/postgres/init/01-invite-db.sh）首启动建库用
+      INVITE_DB_USER: ${INVITE_DB_USER:-invite}
+      INVITE_DB_PASSWORD: ${INVITE_DB_PASSWORD:?set in .env}
+      INVITE_DB_NAME: ${INVITE_DB_NAME:-invite}
+    volumes:
+      - aether-pg-data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # $$ 转义：运行时取容器内 env，而非 compose 插值
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - aether-net
+
+  synapse:
+    image: ${REGISTRY_MIRROR:-docker.1ms.run}/matrixdotorg/synapse:v1.165.0
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      # generate 阶段使用；运行时配置来自已渲染的 /data/homeserver.yaml
+      SYNAPSE_SERVER_NAME: ${SYNAPSE_SERVER_NAME:?set in .env}
+      SYNAPSE_REPORT_STATS: ${SYNAPSE_REPORT_STATS:-no}
+      POSTGRES_DB: ${POSTGRES_DB:-synapse}
+      POSTGRES_USER: ${POSTGRES_USER:-synapse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      SYNAPSE_REGISTRATION_SHARED_SECRET: ${SYNAPSE_REGISTRATION_SHARED_SECRET:?set in .env}
+      SYNAPSE_MACARON_SECRET_KEY: ${SYNAPSE_MACARON_SECRET_KEY:?set in .env}
+      SYNAPSE_FORM_SECRET: ${SYNAPSE_FORM_SECRET:?set in .env}
+    volumes:
+      - ./infra/synapse/data:/data
+    healthcheck:
+      # 镜像内必含 python3（实测 3.13.18）；/health 在所有 listener 恒注册（源码实证）
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8008/health', timeout=5)"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aether-net
+
+  invite-service:
+    build:
+      context: ./backend/invite-service
+      args:
+        REGISTRY_MIRROR: ${REGISTRY_MIRROR:-docker.1ms.run}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+    image: aether/invite-service:m1
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      # 单一事实源：INVITE_DB_URL 由 INVITE_DB_* 组装（.env.example 有说明）
+      INVITE_DB_URL: postgresql://${INVITE_DB_USER:-invite}:${INVITE_DB_PASSWORD:?set in .env}@postgres:5432/${INVITE_DB_NAME:-invite}
+      SYNAPSE_INTERNAL_URL: http://synapse:8008
+      SYNAPSE_ADMIN_USERNAME: ${SYNAPSE_ADMIN_USERNAME:?set in .env}
+      SYNAPSE_ADMIN_PASSWORD: ${SYNAPSE_ADMIN_PASSWORD:?set in .env}
+      SYNAPSE_REGISTRATION_SHARED_SECRET: ${SYNAPSE_REGISTRATION_SHARED_SECRET:?set in .env}
+      INVITE_ADMIN_API_KEY: ${INVITE_ADMIN_API_KEY:?set in .env}
+      INVITE_HASH_PEPPER: ${INVITE_HASH_PEPPER:?set in .env}
+      AETHER_MAX_MEMBERS: ${AETHER_MAX_MEMBERS:-4}
+      INVITE_CODE_TTL_SECONDS: ${INVITE_CODE_TTL_SECONDS:-259200}
+      INVITE_MAX_ATTEMPTS: ${INVITE_MAX_ATTEMPTS:-5}
+      INVITE_TOKEN_TTL_MINUTES: ${INVITE_TOKEN_TTL_MINUTES:-60}
+      INVITE_POLL_SECONDS: ${INVITE_POLL_SECONDS:-5}
+    ports:
+      # 仅本机回环：管理 CLI（PRD Q1(b)）与测试直连；公网不可达
+      - "127.0.0.1:${INVITE_SERVICE_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=5)"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      synapse:
+        condition: service_healthy
+    networks:
+      - aether-net
+
+  caddy:
+    image: ${REGISTRY_MIRROR:-docker.1ms.run}/library/caddy:2.11.9
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      # Caddy 容器不含任何 Synapse/邀请服务机密（G 验收断言）
+      AETHER_DOMAIN: ${AETHER_DOMAIN:?set in .env}
+      CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL:?set in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - aether-caddy-data:/data
+      - aether-caddy-config:/config
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      synapse:
+        condition: service_started
+      invite-service:
+        condition: service_started
+    networks:
+      - aether-net
+
+volumes:
+  aether-pg-data:
+  aether-caddy-data:
+  aether-caddy-config:
+
+networks:
+  aether-net:
+    driver: bridge
