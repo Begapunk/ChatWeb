@@ -94,15 +94,44 @@ Package subpath './lib/tsc' is not defined by "exports" in typescript/package.js
 - `docs/RISKS.md R4.3` 状态由「待验证（M2）」改为「**已验证并缓解**」。
 - `TODO.md` M2「开工首检」项已勾选。
 
-## 7. 未完成 / 边界声明
+## 7. 首检后的脚手架落地（同日完成，真实验证）
 
-- **本首检只验证工具链兼容性，未创建 `frontend/` 脚手架、未实现 MatrixService、未写任何 M2 界面或测试**。
-- 未验证项（留待 M2 实现时按官方类型定义逐个确认，遇不确定 API 即停下查证）：
+按本报告锁定的组合创建 `frontend/`（细节见 `frontend/README.md`）：
+`package.json` / `package-lock.json` / `tsconfig.json` / `vite.config.ts` / `index.html`、
+`src/{main.ts, App.vue, env.d.ts}`、`src/styles/{tokens.css, base.css}`、
+`src/stores/ui.ts`、`src/components/UpdatePrompt.vue`、`src/views/BootView.vue`、
+`public/icons/icon.svg`。
+
+| 门禁 | 结果 |
+|---|---|
+| 实际安装版本核对 | `matrix-js-sdk 45.1.0` → `@matrix-org/matrix-sdk-crypto-wasm 18.9.2`（SDK requires `18.9.2`），与 M0 锁定一致 |
+| `npm run typecheck` | `vue-tsc --noEmit` **exit 0** |
+| `npm run build` | **exit 0**；36 modules；JS 100.62 kB / CSS 6.81 kB |
+| PWA 产物 | `dist/sw.js`、`dist/workbox-*.js`、`dist/manifest.webmanifest`、`dist/icons/icon.svg`；precache 7 项 |
+| 入库范围 | `frontend/node_modules/`、`frontend/dist/` 均被 `.gitignore` 忽略；`package-lock.json` 入库 |
+
+**新发现的依赖踩坑**：首轮 `npm install --prefer-offline` 报
+`ETARGET No matching version found for @vitest/mocker@5.1.0`。经 `npm view @vitest/mocker@5.1.0`
+核对该版本**确实存在**，属「离线优先读取过期 packument」；改用 `--prefer-online` 后
+成功安装 440 包。本工程**禁用 `--prefer-offline`**，已写入 `frontend/README.md`。
+
+设计要点落实：深色默认 + `[data-theme="light"]` 浅色切换（设计令牌）、iPhone 安全区与
+44px 最小点击区、`registerType: "prompt"` 的 PWA 更新提示。
+**安全边界**：Service Worker 通过 `navigateFallbackDenylist` 排除 `/_matrix/*` 与
+`/invite-api/*`，`runtimeCaching: []`，只预缓存应用外壳 ——
+API 响应、注册令牌与密文事件不落入 SW 缓存。
+
+## 8. 未完成 / 边界声明
+
+- **MatrixService、登录/邀请注册、会话列表、聊天界面、单元测试与双浏览器 E2E 均未创建**。
+  `BootView.vue` 已明确标注「尚未接线」，不制造功能可用的假象。
+- 未验证项（留待实现时按安装版 `.d.ts` / 官方文档逐个确认，遇不确定 API 即停下查证）：
   `initRustCrypto` 在浏览器打包下的 WASM 资源路径（M0 F4）、MatrixRTC 子路径导出（M6）、
   多设备 E2EE 在真实 PWA 中的行为。
 - 探针目录 `.tmp-gen/m2-probe` 为临时验证工程，被 `.gitignore` 忽略，不作为交付物。
 
-## 8. 结论
+## 9. 结论
 
-M2 前端具备开工条件：工具链组合已通过最小工程实证，唯一阻断项（TS7 / vue-tsc 不兼容）已通过
-降级到 TypeScript 5.9.3 解决并写入依赖锁定与风险清单。**M2 实际代码仍待下一步开发，本报告不宣称其完成。**
+M2 工具链组合已实证、唯一阻断项（TS7 / vue-tsc 不兼容）经降级 TypeScript 5.9.3 解决；
+前端脚手架与设计系统基座已落地且类型检查/生产构建通过。
+**M2 的业务功能（MatrixService 与界面）仍待开发，本报告不宣称其完成。**

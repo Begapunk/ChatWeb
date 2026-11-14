@@ -26,8 +26,9 @@
 ## M2 — Vue PWA 基础聊天（进行中）
 - [x] 开工首检：官方版本核实 + 最小工程实证；TS7/vue-tsc 不兼容 → **锁定 TypeScript 5.9.3**
       （`docs/M2-KICKOFF-CHECK.md`、`docs/DEPENDENCIES.md`、`docs/RISKS.md R4.3`）
-- [ ] **frontend/ 脚手架**（Vue 3.5.45 + TS 5.9.3 + Vite 8.3.8 + Pinia 4.1.0 +
-      vue-router 5.5.1 + vite-plugin-pwa 2.0.0）
+- [x] **frontend/ 脚手架 + 设计系统基座**（Vue 3.5.45 + TS 5.9.3 + Vite 8.3.8 + Pinia 4.1.0 +
+      vue-router 5.5.1 + vite-plugin-pwa 2.0.0）：`typecheck`/`build` 均通过、PWA 产物齐备、
+      `package-lock.json` 入库、SW 排除 API 路径；见 `frontend/README.md`
 - [ ] MatrixService：登录、initRustCrypto(storageKey)、sync 生命周期、前台补同步、
       发送前设备可见等待（F1）、UTD 重试
 - [ ] 登录/邀请注册/会话列表/私聊/群聊/时间/发送状态/已读/回复/撤回/搜索

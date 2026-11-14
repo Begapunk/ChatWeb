@@ -99,6 +99,31 @@
 ### Not done（明确不宣称完成）
 - `frontend/` 脚手架、MatrixService、界面、PWA 外壳与 M2 测试**均尚未创建**。
 
+## [0.3.1-m2-scaffold] - 2026-11-14
+
+### Added（前端脚手架与设计系统基座）
+- `frontend/`：Vue 3.5.45 + TypeScript 5.9.3 + Vite 8.3.8 + Pinia 4.1.0 + vue-router 5.5.1
+  + vite-plugin-pwa 2.0.0 + matrix-js-sdk 45.1.0；精确版本 + `package-lock.json` 入库。
+- 设计令牌 `src/styles/tokens.css`（深色默认 / `[data-theme=light]` 浅色切换）、
+  `base.css`（reset、控件基类、iPhone 安全区、reduced-motion）、`stores/ui.ts`（主题持久化 + 在线状态）。
+- 应用外壳 `App.vue`、`UpdatePrompt.vue`（PWA prompt 更新）、`BootView.vue`（明确标注未接线功能）、
+  原创 `icon.svg`；`index.html` 含 viewport-fit=cover 与 iOS 主屏幕 meta。
+- **PWA 安全边界**：`registerType: "prompt"`；`navigateFallbackDenylist` 排除 `/_matrix/*`、
+  `/invite-api/*`，`runtimeCaching: []` —— API 响应/注册令牌/密文事件不进 SW 缓存。
+
+### Verified（真实执行）
+- 实际安装：`matrix-js-sdk 45.1.0` → `crypto-wasm 18.9.2`（SDK requires `18.9.2`）与 M0 锁定一致。
+- `npm run typecheck`（`vue-tsc --noEmit`）exit 0；`npm run build` exit 0（36 modules，
+  JS 100.62 kB / CSS 6.81 kB）；PWA 产出 `sw.js` / `workbox-*.js` / `manifest.webmanifest`，precache 7 项。
+- `frontend/node_modules/`、`frontend/dist/` 被 gitignore；`package-lock.json` 入库。
+
+### Findings
+- `npm install --prefer-offline` 报 `ETARGET @vitest/mocker@5.1.0`；`npm view` 证明版本存在，
+  属离线优先读取过期 packument。改 `--prefer-online` 后成功（440 包）；本工程禁用 `--prefer-offline`。
+
+### Not done（明确不宣称完成）
+- MatrixService、登录/邀请注册、会话列表、聊天界面、单元测试、双浏览器 E2E 均未创建。
+
 ## [0.0.1-m0] - 2026-11-14
 
 ### Added

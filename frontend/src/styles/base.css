@@ -1,0 +1,146 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  background: var(--ae-bg);
+}
+
+body {
+  font-family: var(--ae-font);
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ae-text);
+  background: var(--ae-bg);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+ol {
+  margin: 0;
+}
+
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+a {
+  color: var(--ae-accent);
+  text-decoration: none;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--ae-ring);
+  border-radius: var(--ae-radius-xs);
+}
+
+::selection {
+  background: var(--ae-accent-soft);
+  color: var(--ae-text);
+}
+
+/* 通用控件 */
+.ae-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--ae-tap);
+  padding: 0 18px;
+  border: 1px solid var(--ae-border);
+  border-radius: var(--ae-radius-sm);
+  background: var(--ae-surface);
+  color: var(--ae-text);
+  font-weight: 600;
+  transition: background 0.18s var(--ae-ease), border-color 0.18s var(--ae-ease);
+}
+
+.ae-btn:hover {
+  background: var(--ae-surface-hover);
+  border-color: var(--ae-border-strong);
+}
+
+.ae-btn--primary {
+  background: var(--ae-accent);
+  border-color: transparent;
+  color: var(--ae-accent-contrast);
+}
+
+.ae-btn--primary:hover {
+  background: var(--ae-accent-hover);
+  border-color: transparent;
+}
+
+.ae-input {
+  width: 100%;
+  min-height: var(--ae-tap);
+  padding: 10px 14px;
+  border: 1px solid var(--ae-border);
+  border-radius: var(--ae-radius-sm);
+  background: var(--ae-bg-elev);
+  color: var(--ae-text);
+}
+
+.ae-input::placeholder {
+  color: var(--ae-text-subtle);
+}
+
+.ae-card {
+  padding: 20px;
+  border: 1px solid var(--ae-border);
+  border-radius: var(--ae-radius);
+  background: var(--ae-bg-elev);
+  box-shadow: var(--ae-shadow);
+}
+
+.ae-mono {
+  font-family: var(--ae-font-mono);
+  font-size: 0.86em;
+  letter-spacing: 0.01em;
+}
+
+/* 滚动条：克制，不抢视觉 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ae-border-strong) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

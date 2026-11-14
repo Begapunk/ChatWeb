@@ -52,7 +52,7 @@
 
 | 组件 | 锁定版本 | 用途 |
 |---|---|---|
-| vitest | 5.1.0 | 单元测试（peers: vite ^6.4–^8 ✓） |
+| vitest | 5.1.0 | 单元测试（peers: vite ^6.4–^8 ✓）；**安装须用在线元数据**（`--prefer-offline` 会因过期 packument 误报 `@vitest/mocker@5.1.0` 不存在），见 `frontend/README.md` |
 | @playwright/test | 1.65.1 | 端到端多浏览器测试（M2 起，可用本机 Chrome channel） |
 | playwright-core | 1.65.1 | M0 已用：channel:"chrome" 驱动本机 Chrome 157，免浏览器下载 |
 | fake-indexeddb | 6.2.8 | Node 环境模拟 IndexedDB（M0 已用） |

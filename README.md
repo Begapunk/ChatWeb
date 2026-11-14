@@ -11,12 +11,13 @@
 ## 当前状态
 
 - **M1 服务端与准入：已通过验收**（M1-R1 变更后回归 **172/172**）
-- **M2：开工首检完成、工具链已锁定；前端脚手架待开发 —— 不宣称完成**
+- **M2：工具链已锁定、前端脚手架与设计系统已落地（typecheck/build 通过）；MatrixService 与界面待开发 —— 不宣称完成**
 
 | 文档 | 说明 |
 |---|---|
 | [docs/M1-AMENDMENT-UNLIMITED.md](docs/M1-AMENDMENT-UNLIMITED.md) | **现行准入语义与权威变更清单**（回改文件 + 172/172 回归证据） |
-| [docs/M2-KICKOFF-CHECK.md](docs/M2-KICKOFF-CHECK.md) | M2 开工首检：TS7/vue-tsc 不兼容实证，TypeScript 锁定 5.9.3 |
+| [docs/M2-KICKOFF-CHECK.md](docs/M2-KICKOFF-CHECK.md) | M2 开工首检 + 脚手架验证：TS7/vue-tsc 不兼容实证，TypeScript 锁定 5.9.3 |
+| [frontend/README.md](frontend/README.md) | 前端命令、目录、设计系统、PWA 缓存红线与待办 |
 | [docs/M1-TEST-REPORT.md](docs/M1-TEST-REPORT.md) | M1 **变更前**原始验收（170/170）；引用须注明版本 |
 | [docs/PRD-M1.md](docs/PRD-M1.md) · [docs/DESIGN-M1.md](docs/DESIGN-M1.md) | M1 基线（顶部均有 M1-R1 变更通告，原文保留可追溯） |
 | [docs/DESIGN-M1-CHECKS.md](docs/DESIGN-M1-CHECKS.md) | §10 复核结论 |

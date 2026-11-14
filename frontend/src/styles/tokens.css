@@ -1,0 +1,76 @@
+/* Aether 设计系统 · 设计令牌
+   原创极简科技风：冷调深蓝底 + 单一青色强调，克制层次、无渐变噪点。
+   深色为默认主题；[data-theme="light"] 覆盖为浅色。iPhone 优先，安全区变量统一在此。 */
+
+:root {
+  color-scheme: dark;
+
+  --ae-bg: #0b0f14;
+  --ae-bg-elev: #111820;
+  --ae-bg-elev-2: #17212c;
+  --ae-surface: rgba(255, 255, 255, 0.035);
+  --ae-surface-hover: rgba(255, 255, 255, 0.07);
+  --ae-border: rgba(148, 180, 210, 0.14);
+  --ae-border-strong: rgba(148, 180, 210, 0.3);
+
+  --ae-text: #e8f0f7;
+  --ae-text-muted: #8fa3b5;
+  --ae-text-subtle: #607487;
+
+  --ae-accent: #4fd1c5;
+  --ae-accent-hover: #6ee0d6;
+  --ae-accent-soft: rgba(79, 209, 197, 0.13);
+  --ae-accent-contrast: #06201e;
+
+  --ae-danger: #ff6b6b;
+  --ae-success: #5ad19a;
+  --ae-warn: #f0b35b;
+
+  --ae-radius-xs: 8px;
+  --ae-radius-sm: 12px;
+  --ae-radius: 18px;
+  --ae-radius-lg: 26px;
+  --ae-shadow: 0 14px 44px rgba(0, 0, 0, 0.38);
+  --ae-ring: 0 0 0 3px rgba(79, 209, 197, 0.28);
+
+  --ae-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --ae-font-mono: "SF Mono", "JetBrains Mono", ui-monospace, SFMono-Regular,
+    Consolas, monospace;
+
+  --ae-safe-top: env(safe-area-inset-top, 0px);
+  --ae-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --ae-safe-left: env(safe-area-inset-left, 0px);
+  --ae-safe-right: env(safe-area-inset-right, 0px);
+
+  --ae-tap: 44px; /* iOS 最小可点区域 */
+  --ae-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --ae-bg: #f5f8fb;
+  --ae-bg-elev: #ffffff;
+  --ae-bg-elev-2: #eaf1f6;
+  --ae-surface: rgba(11, 31, 46, 0.035);
+  --ae-surface-hover: rgba(11, 31, 46, 0.07);
+  --ae-border: rgba(24, 58, 82, 0.13);
+  --ae-border-strong: rgba(24, 58, 82, 0.26);
+
+  --ae-text: #10222f;
+  --ae-text-muted: #4d6577;
+  --ae-text-subtle: #7b8f9f;
+
+  --ae-accent: #0f8f86;
+  --ae-accent-hover: #0b786f;
+  --ae-accent-soft: rgba(15, 143, 134, 0.1);
+  --ae-accent-contrast: #ffffff;
+
+  --ae-danger: #c33c48;
+  --ae-success: #1f8a5b;
+  --ae-warn: #a86a12;
+
+  --ae-shadow: 0 14px 44px rgba(24, 58, 82, 0.12);
+  --ae-ring: 0 0 0 3px rgba(15, 143, 134, 0.24);
+}

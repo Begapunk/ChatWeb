@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Aether">
+  <rect width="512" height="512" rx="112" fill="#0b0f14"/>
+  <path d="M256 96 96 416h72l34-68h108l34 68h72L256 96Zm0 112 36 76h-72l36-76Z" fill="#4fd1c5"/>
+  <circle cx="256" cy="352" r="20" fill="#4fd1c5" opacity=".55"/>
+</svg>
