@@ -119,7 +119,8 @@ scripts/run-m1-adversarial.sh --fresh    # 对抗套件 71 项（独占全新栈
 - 暂存清单核验：无 `.env.test`、无渲染后的 homeserver.yaml、无 signing key、无浏览器 profile、无测试报告；`m1/.env.test.example` 与 `.env.example` 仅含 `__CHANGE_ME__` / `__SAME_AS_...__` 占位符。
 - 暂存 diff 共 86,597 行，密钥赋值模式（password/secret/token/pepper/api_key/registration_shared_secret/macaroon_secret_key + ≥24 字符值，排除占位符与变量引用）扫描：**0 处**。
 - 预扫描唯一命中 `m0/browser/main.js:68 const SECRET = ...` 经脱敏核查为 M0「Olm 密文不含明文」断言用的测试消息字面量，非凭据。
-- 提交后 `git log -p` / `git grep` 全历史复扫结果见 §8 提交记录。
+- 提交后 `git log -p --all` 全历史复扫：**86,810 行、0 处硬编码机密**；`git ls-files` 共 95 个跟踪文件，工作树干净。
+- `git check-ignore -v` 实证（仓库初始化后真实验证，非规则文本推断）：`.env.test`、渲染后的 `homeserver.yaml`、signing key、`m1/reports/*`、`m0/browser-run/*`、`m0/m0-chrome-profile-*/` **6 类敏感路径全部命中 .gitignore 规则**。
 
 ---
 
@@ -141,4 +142,8 @@ scripts/run-m1-adversarial.sh --fresh    # 对抗套件 71 项（独占全新栈
 
 附 **1 项非阻断遗留 LR-M1-1**：名额口径与 PRD 文字基线存在偏差，属 fail-closed 的容量语义问题，已显式钉入测试并登记，**需用户在 M2 开工前决策接受或改造**。QA 未擅自变更需求基线、未弱化任何安全断言、未宣称未完成里程碑的功能已完成。
 
-> 提交记录：见仓库 `git log`（首次基线提交包含 M0 验证工程、M1 全部源码/配置/文档与本报告）。
+> 提交记录：`47c93c2`（M0 验证工程 + M1 全部源码/配置/文档基线，95 文件 / 86,212 行）
+> 及其后的文档回填提交。该提交经提交前 diff 扫描与提交后全历史复扫双重确认无硬编码机密。
+> 本地测试栈保持运行（4 容器 healthy）供 M2 复用；如需释放资源执行
+> `docker compose -f docker-compose.yml -f docker-compose.local.yml --env-file .env.test down`
+> （**不加 `-v`**，保留数据卷）。
