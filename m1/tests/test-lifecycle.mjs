@@ -1,6 +1,6 @@
 // 验收 A/B/C（PRD §5）：邀请码生命周期
 // A 重复使用；B 过期（判定先于计数）；C 尝试超限（BLOCKED 终态）
-// 前置：全新栈（seats_used=1）。本文件消耗 1 个名额（A 的成功 verify）。
+// 前置：本地栈已起即可。名额上限已移除；A 的成功 verify 只会让 seats_used 统计 +1。
 import {
   createCode, getCode, verifyCode, registerWithToken, psqlInvite,
   rndName, rndPass, makeChecker,

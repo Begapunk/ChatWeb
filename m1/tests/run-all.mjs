@@ -1,6 +1,7 @@
-// M1 测试总编排：固定顺序执行（名额预算确定性，见 m1/README.md），汇总报告落 m1/reports/。
-// 顺序：lifecycle（+1 席）→ e2ee（+1 席）→ quota（E 用最后 1 席；D 断言满员）→ exposure（不耗席）。
-// 全量复跑必须用 scripts/run-m1-tests.sh --fresh（重建卷，名额从 0 计）。
+// M1 测试总编排：固定顺序执行（保持套件间状态可预期），汇总报告落 m1/reports/。
+// 顺序：lifecycle → e2ee → quota → exposure。
+// 名额上限已按用户决策（2026-11-14）彻底移除，套件不再竞争稀缺席位，同一栈可重复跑；
+// scripts/run-m1-tests.sh --fresh 仅为结果可复现性推荐，非硬性要求。
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -9,7 +10,7 @@ const here = fileURLToPath(new URL(".", import.meta.url));
 const SUITES = [
   { file: "test-lifecycle.mjs", label: "A/B/C 邀请码生命周期" },
   { file: "test-e2ee.mjs", label: "F 注册自动入房 + E2EE 全链路" },
-  { file: "test-quota.mjs", label: "D/E 四人上限 + 并发竞态" },
+  { file: "test-quota.mjs", label: "D/E 无名额上限 + 并发竞态" },
   { file: "test-exposure.mjs", label: "G/I 管理面隔离 + 注册关闭" },
 ];
 
@@ -50,14 +51,14 @@ const md = [
   "|---|---|---|---|---|",
   ...summary,
   "",
-  "## 验收标准对照（PRD §5）",
+  "## 验收标准对照（PRD §5，D 已按 M1-R1 变更）",
   "",
   "| 验收 | 套件 |",
   "|---|---|",
   "| A 邀请码重复使用 | test-lifecycle |",
   "| B 过期邀请码 | test-lifecycle |",
   "| C 尝试超限 | test-lifecycle |",
-  "| D 四人上限 | test-quota |",
+  "| D（M1-R1 变更）无名额上限 | test-quota |",
   "| E 并发注册竞态 | test-quota |",
   "| F 注册后自动进入加密房间 | test-e2ee |",
   "| G 管理 API 不对浏览器暴露 | test-exposure |",

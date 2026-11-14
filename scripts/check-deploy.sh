@@ -135,6 +135,8 @@ done
 INVITE_ENV=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' aether-invite-service-1 2>/dev/null)
 if echo "$INVITE_ENV" | grep -q '^INVITE_ADMIN_API_KEY='; then RC=0; else RC=1; fi
 check "invite-service 容器 env 含 INVITE_ADMIN_API_KEY（预期存在）" "$RC"
+if echo "$INVITE_ENV" | grep -q '^AETHER_MAX_MEMBERS='; then RC=1; else RC=0; fi
+check "invite-service 容器 env 不含 AETHER_MAX_MEMBERS（名额上限已移除）" "$RC"
 SYN_ENV=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' aether-synapse-1 2>/dev/null)
 if echo "$SYN_ENV" | grep -q '^SYNAPSE_REGISTRATION_SHARED_SECRET='; then RC=0; else RC=1; fi
 check "synapse 容器 env 含 SYNAPSE_REGISTRATION_SHARED_SECRET（预期存在）" "$RC"
@@ -146,9 +148,13 @@ check "固定房间全部启用 Megolm 加密" "$([ -n "$ROOMS_TOTAL" ] && [ "$R
 ROOMS_INVITE=$($COMPOSE exec -T postgres psql -U "$PG_USER" -d "$PG_DB" -tAc "SELECT count(DISTINCT room_id) FROM event_json WHERE json::jsonb->>'type'='m.room.join_rules' AND json::jsonb->'content'->>'join_rule'='invite'" 2>/dev/null | tr -d '[:space:]')
 check "固定房间全部 join_rules=invite（邀请制）" "$([ -n "$ROOMS_TOTAL" ] && [ "$ROOMS_TOTAL" = "$ROOMS_INVITE" ] && echo 0 || echo 1)" "invite_rules=$ROOMS_INVITE"
 
-echo "==> 7. 名额行与自举（I 之服务侧事实）"
+echo "==> 7. 席位统计行与自举（I 之服务侧事实；名额上限已移除）"
 SEATS=$($COMPOSE exec -T postgres psql -U "$PG_USER" -d invite -tAc "SELECT seats_used FROM quota_counters WHERE id=1" 2>/dev/null | tr -d '[:space:]')
-check "quota_counters 单行存在且 seats_used>=1（管理员占席）" "$([ -n "$SEATS" ] && [ "$SEATS" -ge 1 ] && echo 0 || echo 1)" "seats_used=$SEATS"
+check "quota_counters 单行存在且 seats_used>=1（纯统计，不参与准入）" "$([ -n "$SEATS" ] && [ "$SEATS" -ge 1 ] && echo 0 || echo 1)" "seats_used=$SEATS"
+QUOTA_BODY=$(curl -s --noproxy '*' --max-time 10 -H "X-Admin-Key: $ADMIN_KEY" http://127.0.0.1:8000/admin/v1/quota 2>/dev/null || true)
+QUOTA_COMPACT=$(printf '%s' "$QUOTA_BODY" | tr -d '[:space:]')
+if printf '%s' "$QUOTA_COMPACT" | grep -q '"unlimited":true' && printf '%s' "$QUOTA_COMPACT" | grep -q '"max_members":null'; then RC=0; else RC=1; fi
+check "管理端点 quota 返回 unlimited=true / max_members=null（无名额上限）" "$RC"
 
 echo "==> 8. 渲染配置不入 git（J 之本地断言）"
 if [ -d .git ]; then

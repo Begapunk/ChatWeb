@@ -4,6 +4,31 @@
 > 语言：简体中文 · 上游输入：用户 M1 范围规范、M0-VERIFICATION-REPORT、ARCHITECTURE.md、RISKS.md、TODO.md
 > 本 PRD 为简单 PRD（不做竞品分析）。M0 已实测的 API 事实见 docs/DEPENDENCIES.md 第 6 节，本文直接引用，不再复述。
 
+---
+
+## ⚠️ 变更通告 M1-R1（2026-11-14 · 用户决策 · 已生效）
+
+**产品不再限制注册人数。** 本文以下文字已被取代；原文保留仅为维持 M1 基线可追溯：
+
+| 位置 | 原文（已废止） | 现行语义 |
+|---|---|---|
+| §1.1(1) | 「4 人固定成员的注册准入」 | 准入闭环不变，但总人数不设上限；准入完全由管理员发放的一次性邀请码控制 |
+| §3 P0-5 / P0-10 | 「四人名额事务控制」「四人上限」验收 | 事务锁保留用于**邀请码一次性原子性**，`quota_counters` 降级为纯统计 |
+| §4「次数限制语义」末条 | 满 4 人返回 `quota_exhausted`、码不消耗 | **不存在名额不足分支**；`quota_exhausted` 响应已删除 |
+| §5 验收 D | Given 已有 4 账号 → `quota_exhausted` | **D′**：已有任意 N 个账号后，持全新有效邀请码者校验仍成功并取得令牌；`/admin/v1/quota` 恒定 `unlimited=true` / `max_members=null` |
+| §5 验收 E | 8 并发恰 1 成功、其余 `quota_exhausted` | **E′**：8 枚**不同**有效码并发全部成功，无 `quota_exhausted`、无 5xx、无死锁；同码 8 并发仍恰 1 成功（由 `test-adversarial` CC1 覆盖） |
+| §6 Q4 | 名额 = Synapse 正式用户数 / 不支持注销回收 | 名额概念取消；`seats_used` 仅作可观测统计，不参与任何准入判定 |
+
+**不变的部分（安全边界未削弱）**：邀请码 128bit 熵、仅存 `salt+pepper` 哈希、过期先于计数、
+失败计数 → BLOCKED、一次性 `USED`、REVOKED 对外按 `invalid`、`uses_allowed=1` 短时效注册令牌、
+联邦/公开注册/访客关闭、管理面不对公网暴露、注册后自动进入固定 Megolm 加密房间、日志红线。
+验收 **A/B/C/F/G/H/I/J 全部不变**。
+
+实现与回归证据见 [docs/M1-AMENDMENT-UNLIMITED.md](M1-AMENDMENT-UNLIMITED.md)。
+**后续实现以变更文档为准，不得按本文已废止条款重新引入人数上限。**
+
+---
+
 ## 1. 产品目标与 M1 边界
 
 ### 1.1 产品目标（M1）

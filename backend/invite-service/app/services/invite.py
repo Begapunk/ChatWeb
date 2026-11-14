@@ -1,9 +1,12 @@
-"""邀请码校验编排：原子状态迁移 + 名额事务（DESIGN-M1 §3.3/§3.4，PRD §4 状态机）。
+"""邀请码校验编排：原子状态迁移 + 席位统计（DESIGN-M1 §3.3/§3.4，PRD §4 状态机）。
+
+**名额上限已按用户决策（2026-11-14）彻底移除**：不再有 quota_exhausted 拒绝路径。
+邀请码本身（一次性/过期/尝试次数/哈希）是唯一准入控制。
 
 事务模型（手工 commit/rollback，因失败路径需持久化 attempts/EXPIRED 迁移后再报错）：
   - 业务规则失败（invalid/expired/blocked/used）：先写簿记 → COMMIT → 抛 InviteError
-  - 名额不足（quota_exhausted）/ Synapse 调用失败：ROLLBACK（码保持 UNUSED，attempts 不增）
-  - 成功：条件 UPDATE 转 USED（rowcount=1 强校验）→ 预占席位 → 审计 → COMMIT
+  - Synapse 调用失败：ROLLBACK（码保持 UNUSED，attempts 不增，可重试）
+  - 成功：条件 UPDATE 转 USED（rowcount=1 强校验）→ 记录席位统计 → 审计 → COMMIT
 日志红线：任何路径都不记录明文码/令牌。
 """
 from __future__ import annotations
@@ -17,7 +20,7 @@ import asyncpg
 
 from app.config import Settings
 from app.services import security
-from app.services.quota import QuotaExhausted, reserve_seat
+from app.services.quota import record_seat_usage
 from app.services.synapse_admin import MatrixAdminClient, SynapseApiError
 
 logger = logging.getLogger(__name__)
@@ -130,18 +133,13 @@ async def verify_code(db, cfg: Settings, admin: MatrixAdminClient, code_input: s
                     else InviteError(400, "invalid", "邀请码校验失败")
                 raise await _fail(conn, tx, error, code_id=row["id"])
 
-            # ---- 哈希匹配且 UNUSED：名额事务（§3.3）----
+            # ---- 哈希匹配且 UNUSED：记录席位统计 + 发令牌（无名额上限）----
             try:
-                await reserve_seat(conn, admin)
+                await record_seat_usage(conn, admin)
                 expiry_ms = admin.now_ms() + cfg.token_ttl_minutes * 60 * 1000
                 token_body = await admin.create_registration_token(
                     uses_allowed=1, expiry_time_ms=expiry_ms
                 )
-            except QuotaExhausted:
-                # ROLLBACK：码保持 UNUSED（PRD §4），attempts/审计均不落
-                await tx.rollback()
-                logger.info("verify rejected: quota exhausted (code_id=%s)", row["id"])
-                raise InviteError(409, "quota_exhausted", "成员名额已满") from None
             except SynapseApiError as exc:
                 # 发码失败：码不消耗、可重试
                 await tx.rollback()

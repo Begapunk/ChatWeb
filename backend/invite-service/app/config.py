@@ -48,7 +48,8 @@ class Settings:
     )
     admin_api_key: str = field(default_factory=lambda: _require("INVITE_ADMIN_API_KEY"))
     hash_pepper: str = field(default_factory=lambda: _require("INVITE_HASH_PEPPER"))
-    max_members: int = field(default_factory=lambda: _int_env("AETHER_MAX_MEMBERS", 4))
+    # 名额上限已按用户决策（2026-11-14）彻底移除：不再读取 AETHER_MAX_MEMBERS。
+    # 邀请码（管理员发码 / 一次性 / 哈希 / 过期 / 尝试次数）是唯一准入控制。
     code_ttl_seconds: int = field(
         default_factory=lambda: _int_env("INVITE_CODE_TTL_SECONDS", 259200)
     )

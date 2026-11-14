@@ -41,7 +41,12 @@
 | pinia | 4.1.0 | npm | peers: vue ^3.5.11 ✓, typescript >=5.6 ✓ |
 | vite | 8.3.8 | npm | — |
 | vite-plugin-pwa | 2.0.0 | npm | peers: vite ^3.1–^8 ✓；需 workbox-build/window ^7.4.1 |
-| typescript | 7.0.2 | npm | 注意：TS7 为新编译器世代，vue-tsc 兼容性 M2 开工前必须复核 |
+| typescript | **5.9.3**（原拟 7.0.2，M2 开工首检已修订） | npm | TS 7.0.2 的 `exports` 不再暴露 `./lib/tsc`，而 `vue-tsc 3.3.14` 的 `resolveTscPath()` 仍 `require.resolve('typescript/lib/tsc')` → `ERR_PACKAGE_PATH_NOT_EXPORTED`，类型检查失败；降级 5.9.3 后 `vue-tsc --noEmit`、`vite build` 与 PWA 产物（`sw.js` / `manifest.webmanifest`）全部通过 |
+
+> **M2 工具链结论（2026-11-14 实测，见 `docs/M2-KICKOFF-CHECK.md`）**：上表除 TypeScript
+> 外的版本均在最小工程 `.tmp-gen/m2-probe` 中完成 `vite build` + `vue-tsc --noEmit` 验证。
+> M2 前端锁定 **TypeScript 5.9.3**，不使用 7.0.2；`vue-tsc 3.3.14` /
+> `@vitejs/plugin-vue 6.0.11` / `vite-plugin-pwa 2.0.0` 在该组合下工作正常。
 
 ## 5. 测试与验证工具
 

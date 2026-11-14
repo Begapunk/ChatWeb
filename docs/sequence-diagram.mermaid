@@ -6,7 +6,7 @@ sequenceDiagram
     participant SY as Synapse
     participant ADM as 管理员账号(服务内)
 
-    Note over U,ADM: 前置: 自举完成(管理员=1席, 固定加密房间已建)
+    Note over U,ADM: 前置: 自举完成(管理员已建, 固定加密房间已建)<br/>M1-R1: 名额上限已移除, seats_used 仅作统计
 
     U->>CA: POST /invite-api/v1/verify {code}
     CA->>INV: 转发(唯一暴露的邀请服务路径)
@@ -16,20 +16,16 @@ sequenceDiagram
         INV-->>CA: 400 {error: expired|blocked|used|invalid}
         CA-->>U: 同上
     else 哈希匹配且 UNUSED
-        INV->>PG: SELECT * FROM quota_counters WHERE id=1 FOR UPDATE
+        INV->>PG: SELECT seats_used FROM quota_counters WHERE id=1 FOR UPDATE
         INV->>SY: GET /_synapse/admin/v2/users → 正式用户数 n
-        INV->>INV: effective=max(seats_used,n); 漂移回写
-        alt effective ≥ 4
-            INV->>PG: ROLLBACK(码保持 UNUSED)
-            INV-->>CA: 409 {error: quota_exhausted}
-        else 名额可用
-            INV->>SY: POST /_synapse/admin/v1/registration_tokens/new<br/>{uses_allowed:1, expiry_time:+60min}
-            SY-->>INV: {token, pending:0, completed:0}
-            INV->>PG: UPDATE invite_codes→USED WHERE status='UNUSED'(rowcount=1)<br/>quota.seats_used+1; INSERT audit; COMMIT
-            INV-->>CA: 200 {registration_token, token_expires_at}
-            CA-->>U: 同上
-        end
+        INV->>INV: 统计校准 seats_used=max(seats_used,n)<br/>（仅统计, 不做上限判定）
+        INV->>SY: POST /_synapse/admin/v1/registration_tokens/new<br/>{uses_allowed:1, expiry_time:+60min}
+        SY-->>INV: {token, pending:0, completed:0}
+        INV->>PG: UPDATE invite_codes→USED WHERE status='UNUSED'(rowcount=1)<br/>quota.seats_used+1(统计); INSERT audit; COMMIT
+        INV-->>CA: 200 {registration_token, token_expires_at}
+        CA-->>U: 同上
     end
+    Note over INV,CA: 无 quota_exhausted 分支<br/>任意账号数下, 新有效码均可校验成功
 
     U->>CA: POST /_matrix/client/v3/register<br/>{type: m.login.registration_token, token, username, password}
     CA->>SY: 转发

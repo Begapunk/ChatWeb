@@ -49,7 +49,7 @@ async def lifespan(app: FastAPI):
     # 迁移（版本表 runner，幂等）
     await run_migrations(db.pool)
 
-    # 管理员客户端 + 自举（管理员/固定加密房间/名额行，幂等）
+    # 管理员客户端 + 自举（管理员/固定加密房间/席位统计行，幂等）
     admin_client = MatrixAdminClient(
         base_url=cfg.synapse_base_url,
         username=cfg.synapse_admin_username,
@@ -63,7 +63,8 @@ async def lifespan(app: FastAPI):
     inviter = RoomInviteService(db, cfg, admin_client)
     inviter.start()
     app.state.inviter = inviter
-    logger.info("invite-service started (poll=%ss, max_members=%d)", cfg.poll_seconds, cfg.max_members)
+    # 名额上限已按用户决策（2026-11-14）彻底移除：config 不再有 max_members 字段。
+    logger.info("invite-service started (poll=%ss, unlimited=true)", cfg.poll_seconds)
 
     try:
         yield

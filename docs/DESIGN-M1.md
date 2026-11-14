@@ -7,6 +7,33 @@
 
 ---
 
+## ⚠️ 变更通告 M1-R1（2026-11-14 · 用户决策 · 已生效）
+
+**四人名额上限已彻底移除**，邀请码成为唯一准入控制。本文以下设计条款已被取代：
+
+| 位置 | 已废止内容 | 现行实现 |
+|---|---|---|
+| §1.1 表格前两行 | 「四人名额并发不少发不多发」「名额口径与 Synapse 用户数一致」 | 事务锁仍用于邀请码一次性原子性；`quota_counters` 仅作统计，不再做上限判定 |
+| **§3.3 全节** | `effective >= max_members` → `quota_exhausted` + ROLLBACK | **判定分支已删除**。`record_seat_usage()`：锁行 → `max(seats_used, synapse_count)` 校准 → `seats_used+1`，纯统计，不抛 `QuotaExhausted` |
+| §3.4 步骤 4 | 「进入名额事务（3.3）：锁 quota 行 → 校准 → 放行则调令牌 API」 | 「记录席位统计 + 调令牌 API」，无放行条件 |
+| §5 接口表 `POST /invite-api/v1/verify` | 409 `quota_exhausted` | 该错误码已删除；响应码集合不再含 409 |
+| §5 接口表 `GET /admin/v1/quota` | `{"max_members": 4, ...}` | `{"unlimited": true, "max_members": null, "seats_used": k, "synapse_count": n, "effective": e}` |
+| §5 错误码表 / §7 时序图 | `quota_exhausted`、`alt effective ≥ 4` 分支 | 代码中已删除；本文 §7 内嵌时序图与 `docs/sequence-diagram.mermaid` 均已就地更新为无上限语义 |
+| §3.2 数据模型 `quota_counters.max_members` | 参与准入判定 | 列保留仅为兼容已有数据库（避免破坏性迁移），代码不再读取 |
+| §4 自举 `INSERT ... max_members=env` | 从 env 读取 | 固定 `VALUES (1, 4, 0) ON CONFLICT DO NOTHING`，4 仅为兼容旧列占位 |
+
+配置面：`AETHER_MAX_MEMBERS` 已从 `.env.example` / `docker-compose.yml` / `config.py` 全部移除；
+`main.py` 启动日志改为 `unlimited=true`（原日志读取 `cfg.max_members`，删除字段后已同步修正，
+否则服务启动即 `AttributeError`）。
+
+其余设计（双 profile、Caddy 路由、Synapse 加固、邀请码状态机、自动入房、日志红线）**完全不变**。
+完整清单与回归证据见 [docs/M1-AMENDMENT-UNLIMITED.md](M1-AMENDMENT-UNLIMITED.md)。
+**后续实现以变更文档为准。**
+
+---
+
+---
+
 ## 1. 实现方案与部署拓扑
 
 ### 1.1 核心技术难点与对策
@@ -343,19 +370,14 @@ sequenceDiagram
         INV-->>CA: 400 {error: expired|blocked|used|invalid}
         CA-->>U: 同上
     else 哈希匹配且 UNUSED
-        INV->>PG: SELECT * FROM quota_counters WHERE id=1 FOR UPDATE
+        INV->>PG: SELECT seats_used FROM quota_counters WHERE id=1 FOR UPDATE
         INV->>SY: GET /_synapse/admin/v2/users → 正式用户数 n
-        INV->>INV: effective=max(seats_used,n); 漂移回写
-        alt effective ≥ 4
-            INV->>PG: ROLLBACK(码保持 UNUSED)
-            INV-->>CA: 409 {error: quota_exhausted}
-        else 名额可用
-            INV->>SY: POST /_synapse/admin/v1/registration_tokens/new<br/>{uses_allowed:1, expiry_time:+60min}
-            SY-->>INV: {token, pending:0, completed:0}
-            INV->>PG: UPDATE invite_codes→USED WHERE status='UNUSED'(rowcount=1)<br/>quota.seats_used+1; INSERT audit; COMMIT
-            INV-->>CA: 200 {registration_token, token_expires_at}
-            CA-->>U: 同上
-        end
+        INV->>INV: seats_used=max(seats_used,n) 仅统计校准<br/>（M1-R1: 不做上限判定）
+        INV->>SY: POST /_synapse/admin/v1/registration_tokens/new<br/>{uses_allowed:1, expiry_time:+60min}
+        SY-->>INV: {token, pending:0, completed:0}
+        INV->>PG: UPDATE invite_codes→USED WHERE status='UNUSED'(rowcount=1)<br/>quota.seats_used+1(统计); INSERT audit; COMMIT
+        INV-->>CA: 200 {registration_token, token_expires_at}
+        CA-->>U: 同上
     end
 
     U->>CA: POST /_matrix/client/v3/register<br/>{type: m.login.registration_token, token, username, password}

@@ -26,7 +26,8 @@ BACKOFF_CAP_SECONDS = 300
 async def ensure_bootstrap(db: Database, cfg: Settings, admin: MatrixAdminClient) -> None:
     """启动自举（幂等，DESIGN-M1 §3.5）：
 
-    1. quota_counters 行不存在则插入（max_members=env，seats_used=0）；
+    1. quota_counters 统计行不存在则插入（seats_used=0）；
+       max_members 列仅为兼容已有数据库而保留，不参与任何准入判定（名额上限已移除）。
     2. 管理员登录；不存在则以 shared-secret 管理注册创建，seats_used 校准为 ≥1；
     3. rooms 为空则创建 1 个 group + 1 个 private 固定加密房间并入库。
     """
@@ -34,9 +35,8 @@ async def ensure_bootstrap(db: Database, cfg: Settings, admin: MatrixAdminClient
         await conn.execute(
             """
             INSERT INTO quota_counters (id, max_members, seats_used)
-            VALUES (1, $1, 0) ON CONFLICT (id) DO NOTHING
-            """,
-            cfg.max_members,
+            VALUES (1, 4, 0) ON CONFLICT (id) DO NOTHING
+            """
         )
 
     # ---- 管理员账号 ----
@@ -59,7 +59,7 @@ async def ensure_bootstrap(db: Database, cfg: Settings, admin: MatrixAdminClient
                 ) from reg_exc
             raise
 
-    # ---- 名额校准（管理员占第 1 席；漂移自愈）----
+    # ---- 席位统计校准（仅统计，不参与准入；管理员计入）----
     synapse_count = await admin.count_active_users()
     async with db.acquire() as conn:
         async with conn.transaction():
@@ -96,10 +96,9 @@ async def ensure_bootstrap(db: Database, cfg: Settings, admin: MatrixAdminClient
         logger.info("bootstrap: fixed encrypted rooms created")
 
     logger.info(
-        "bootstrap complete (seats_used=%d, synapse_count=%d, max_members=%d)",
+        "bootstrap complete (seats_used=%d, synapse_count=%d, unlimited=true)",
         target,
         synapse_count,
-        cfg.max_members,
     )
 
 

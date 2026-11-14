@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Aether M1 集成测试编排：local profile 起栈 → m1 全部测试 → 报告产出。
 # 用法：scripts/run-m1-tests.sh [--fresh] [--keep]
-#   --fresh  测试前 down -v 重建卷（名额预算从 0 开始；全量 A–J 复跑必须用此项）
+#   --fresh  测试前 down -v 重建卷（推荐：统计与账号从 0 开始，结果可复现）
 #   --keep   测试后保留栈运行（默认保留；QA 期间勿删）
-# 注意：全量测试对名额有确定性预算（见 m1/README.md），同一栈只能完整跑一轮。
+# 注意：名额上限已彻底移除（2026-11-14 用户决策），套件不再竞争稀缺席位，
+#       同一栈可重复跑；--fresh 仅为可复现性推荐，非硬性要求。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"

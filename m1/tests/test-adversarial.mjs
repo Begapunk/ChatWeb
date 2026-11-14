@@ -2,11 +2,8 @@
 // 覆盖：REVOKED 语义、过期先于哈希判定、一次性原子性（同码并发）、G 的对抗
 //       （带真实管理员凭据经公网入口、路径穿越/编码变体）、畸形请求、
 //       日志红线（明文码/令牌/密码不入日志）、docker inspect 机密面。
-// 前置：全新栈（seats_used=1），且必须独占该栈（不得与 run-all.mjs 同栈跑）。
-// 名额预算（QA 收尾修正）：DESIGN-M1 §3.3 中「每次成功 verify 发令牌即预占一席」，
-// 本套件 Q 段之前恰有 2 次成功 verify（CC 8 并发 1 次 + ST11 恢复 1 次），
-// 加管理员共 3 席；Q1 是第 4 席（末席），Q3 之后满员。原版误留了冗余的 2 并发
-// 成功 verify，导致 Q1 撞满员（详见 docs/M1-TEST-REPORT.md 发现 D-1）。
+// 前置：本地栈已起即可。名额上限已按用户决策（2026-11-14）彻底移除，不再需要
+//       「全新栈 + 独占 4 席预算」；--fresh 仅为结果可复现性推荐，非硬性前置。
 // 约束：沿用 helpers.mjs 请求通道（禁裸 fetch）；报告/日志不含任何码/令牌/密码明文。
 import {
   createCode, getCode, revokeCode, getQuota, verifyCode, registerWithToken,
@@ -155,9 +152,9 @@ try {
   check("ST9 状态 BLOCKED 终态", (await getCode(stC.code_id)).status === "BLOCKED");
 
   // ================= 3. 一次性原子性：同一码并发只发一张令牌 =================
-  // 保留覆盖更强的 8 并发；移除原版冗余的 2 并发（同样测原子性，但会多发一张令牌、
-  // 多预占一席，导致后续 Q1 末席名额预算失准）。8 并发已完整包含「恰 1 成功、
-  // 其余 used、终态 USED」三项断言语义。
+  // 8 并发完整覆盖「恰 1 成功、其余 used、终态 USED」三项断言语义。
+  // （旧版另有冗余 2 并发：在已废止的四人名额预算下会多预占一席、导致 Q1 预算失准；
+  //  名额上限移除后该约束已消失，但为保持套件精简仍不恢复该冗余用例。）
   const cc8 = await createCode({ note: "CC: 同码 8 并发" });
   const cc8Res = await Promise.all(Array.from({ length: 8 }, () => verifyCode(cc8.code)));
   const cc8Ok = cc8Res.filter((r) => r.status === 200);
@@ -228,39 +225,43 @@ try {
   const junkPath = await directInvite("GET", "/admin/v1/nonsense", { headers: adminHdr });
   check("MF14 管理面未知路径 → 404", junkPath.status === 404, junkPath.status);
 
-  // ================= 6. 名额边界（末席 + 满员） =================
+  // ================= 6. 无名额上限（2026-11-14 用户决策：彻底移除名额限制） =================
+  // 原「末席 + 满员 + LR-M1-1 观测」语义已作废。此处验证：在已发放多张令牌、
+  // 已注册多个账号之后，新邀请码仍可连续校验成功（无隐性人数上限）；
+  // 邀请码仍是唯一准入控制；quota_counters 只作统计（unlimited=true / max_members=null）。
   const qPre = await getQuota();
-  const last = await createCode({ note: "Q: 末席" });
-  const lastV = await verifyCode(last.code);
-  check("Q1 末席校验成功（消耗第 4 席）", lastV.status === 200 && !!lastV.json?.registration_token, `${lastV.status} pre=${qPre.effective}`);
-  if (lastV.status === 200) {
-    const lu = rndName("last"), lp = rndPass();
-    const lReg = await registerWithToken(lu, lp, lastV.json.registration_token);
-    check("Q2 末席注册完成（账号真实存在）", lReg.status === 200, lReg.status);
-  }
-  const qFull = await createCode({ note: "Q: 满员" });
-  const qFullV = await verifyCode(qFull.code);
-  check("Q3 满员后新码 → 409 quota_exhausted", qFullV.status === 409 && qFullV.json?.error === "quota_exhausted", `${qFullV.status} ${qFullV.json?.error}`);
-  const qFullAfter = await getCode(qFull.code_id);
-  check("Q4 满员拒绝的码保持 UNUSED 且 attempts=0（不消耗）", qFullAfter.status === "UNUSED" && qFullAfter.attempts === 0, `a=${qFullAfter.attempts}`);
+  check("Q1 管理视图 unlimited=true / max_members=null（无名额上限）",
+    qPre.unlimited === true && qPre.max_members === null,
+    `unlimited=${qPre.unlimited} max=${qPre.max_members}`);
+
+  const qA = await createCode({ note: "Q: 无上限#1" });
+  const qAV = await verifyCode(qA.code);
+  check("Q2 已有多账号后新码仍校验成功（第 N+1 张令牌）",
+    qAV.status === 200 && !!qAV.json?.registration_token, `${qAV.status} pre=${qPre.effective}`);
+  const qB = await createCode({ note: "Q: 无上限#2" });
+  const qBV = await verifyCode(qB.code);
+  check("Q3 连续再发一张码仍成功（无 409 quota_exhausted）",
+    qBV.status === 200 && qBV.json?.error !== "quota_exhausted", `${qBV.status} ${qBV.json?.error}`);
+
   const qEnd = await getQuota();
-  check("Q5 终态：seats_used=4 且 effective=4（上限不被突破）", qEnd.seats_used === 4 && qEnd.effective === 4,
-    `seats=${qEnd.seats_used} synapse=${qEnd.synapse_count} effective=${qEnd.effective}`);
-  // LR-M1-1（如实钉死，不隐瞒）：实现按 DESIGN-M1 §3.3 在「发令牌」时预占席位且单调不回收，
-  // 而 PRD Q4 文字口径为「名额 = Synapse 正式用户数」。ST11 的令牌未用于注册，故必然出现
-  // synapse_count < seats_used。该行为 fail-closed（不会放入第 5 人），不破坏机密性，但
-  // 「四人上限」实际约束的是已发凭证数而非真实账号数。QA 不擅自变更 PRD 基线，显式登记，
-  // 详见 docs/M1-TEST-REPORT.md「遗留问题 LR-M1-1」。
-  check("Q6 [LR-M1-1] 观测到未注册令牌占席（synapse_count < seats_used），上限仍为 4",
-    qEnd.synapse_count < qEnd.seats_used && qEnd.seats_used === 4,
-    `synapse=${qEnd.synapse_count} seats=${qEnd.seats_used}`);
+  check("Q4 统计随成功发令牌增长且 unlimited 恒定",
+    qEnd.seats_used > qPre.seats_used && qEnd.unlimited === true && qEnd.max_members === null,
+    `before=${qPre.seats_used} after=${qEnd.seats_used} unlimited=${qEnd.unlimited}`);
+
+  const qBad = await verifyCode("0000000000-aaaaaaaaaaaaaaaaaaaaaa");
+  check("Q5 无效码仍被拒（移除人数上限 ≠ 放开准入）",
+    qBad.status === 400 && qBad.json?.error === "invalid", `${qBad.status} ${qBad.json?.error}`);
+  const qReuse = await verifyCode(qA.code);
+  check("Q6 已用码仍被拒（一次性仍生效）",
+    qReuse.status === 400 && qReuse.json?.error === "used", `${qReuse.status} ${qReuse.json?.error}`);
 
   // ================= 7. 日志红线（明文码/令牌/密码不入任何容器日志） =================
   // 采集本套件全程中出现过的敏感串（仅内存比对，绝不打印）
-  const secrets = [cc8.code, rc.code, last.code, cc8Ok[0]?.json?.registration_token, SYNAPSE_ADMIN_PASSWORD];
-  // verify 成功响应里出现过的令牌（ST11/Q1 的注册令牌在响应体中，也应只在内存）
+  const secrets = [cc8.code, rc.code, qA.code, qB.code, cc8Ok[0]?.json?.registration_token, SYNAPSE_ADMIN_PASSWORD];
+  // verify 成功响应里出现过的令牌（ST11/Q2/Q3 的注册令牌在响应体中，也应只在内存）
   if (rcOk.status === 200) secrets.push(rcOk.json.registration_token);
-  if (lastV.status === 200) secrets.push(lastV.json.registration_token);
+  if (qAV.status === 200) secrets.push(qAV.json.registration_token);
+  if (qBV.status === 200) secrets.push(qBV.json.registration_token);
   const logs = {
     "invite-service": dockerExec(["logs", "--since", "30m", "aether-invite-service-1"]),
     caddy: dockerExec(["logs", "--since", "30m", "aether-caddy-1"]),

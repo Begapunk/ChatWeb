@@ -1,31 +1,38 @@
 # Aether
 
-四人私人端到端加密通讯 PWA。基于 Matrix 协议（Synapse + matrix-js-sdk + Rust Crypto WASM），
+私人端到端加密通讯 PWA。基于 Matrix 协议（Synapse + matrix-js-sdk + Rust Crypto WASM），
 服务器只存储与转发密文，不持有解密聊天内容的密钥。
 
-## 当前状态：M1 服务端与准入已通过 QA 正式验收（170/170 项检查，含 1 项非阻断遗留）
+> **产品变更 M1-R1（2026-11-14，已生效）**：注册人数**不设上限**。
+> 准入完全由管理员手动发放的一次性邀请码控制；`quota_counters` 仅作统计，
+> `/admin/v1/quota` 返回 `unlimited=true` / `max_members=null`。
+> 详见 [docs/M1-AMENDMENT-UNLIMITED.md](docs/M1-AMENDMENT-UNLIMITED.md)。
 
-- **M1 验收报告**：[docs/M1-TEST-REPORT.md](docs/M1-TEST-REPORT.md)（主套件 68/68 + 部署检查 31/31 + 独立对抗套件 71/71）
-- M1 设计：[docs/DESIGN-M1.md](docs/DESIGN-M1.md) · §10 复核结论：[docs/DESIGN-M1-CHECKS.md](docs/DESIGN-M1-CHECKS.md)
-- M1 需求：[docs/PRD-M1.md](docs/PRD-M1.md) · 部署指南：[docs/DEPLOY.md](docs/DEPLOY.md)
-- M0 验证报告：[docs/M0-VERIFICATION-REPORT.md](docs/M0-VERIFICATION-REPORT.md)
-- 架构设计：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- 版本锁定：[docs/DEPENDENCIES.md](docs/DEPENDENCIES.md)
-- 风险清单：[docs/RISKS.md](docs/RISKS.md)
-- 后续计划：[TODO.md](TODO.md)
+## 当前状态
 
-**产品 UI 尚未开发**（M2 起 Vue PWA）。M1 交付：Synapse(PG16) + Caddy + FastAPI 邀请服务的
-Compose 部署、邀请码准入闭环（4 人名额事务锁）、注册后自动进入固定加密房间、
-部署检查脚本与 A–J 集成测试套件。
+- **M1 服务端与准入：已通过验收**（M1-R1 变更后回归 **172/172**）
+- **M2：开工首检完成、工具链已锁定；前端脚手架待开发 —— 不宣称完成**
 
-> **M2 开工前需决策**：遗留 [LR-M1-1](docs/M1-TEST-REPORT.md) —— 名额在「发令牌」时预占且
-> 单调不回收，与 `PRD Q4`「名额 = Synapse 正式用户数」的文字口径不一致。该行为 fail-closed
-> （不会放入第 5 人），但令牌发了未注册会永久占席。QA 未擅自变更需求基线，详见验收报告 §4 D-3。
+| 文档 | 说明 |
+|---|---|
+| [docs/M1-AMENDMENT-UNLIMITED.md](docs/M1-AMENDMENT-UNLIMITED.md) | **现行准入语义与权威变更清单**（回改文件 + 172/172 回归证据） |
+| [docs/M2-KICKOFF-CHECK.md](docs/M2-KICKOFF-CHECK.md) | M2 开工首检：TS7/vue-tsc 不兼容实证，TypeScript 锁定 5.9.3 |
+| [docs/M1-TEST-REPORT.md](docs/M1-TEST-REPORT.md) | M1 **变更前**原始验收（170/170）；引用须注明版本 |
+| [docs/PRD-M1.md](docs/PRD-M1.md) · [docs/DESIGN-M1.md](docs/DESIGN-M1.md) | M1 基线（顶部均有 M1-R1 变更通告，原文保留可追溯） |
+| [docs/DESIGN-M1-CHECKS.md](docs/DESIGN-M1-CHECKS.md) | §10 复核结论 |
+| [docs/DEPLOY.md](docs/DEPLOY.md) · [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 部署指南 · 架构与信任边界 |
+| [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) · [docs/RISKS.md](docs/RISKS.md) | 版本锁定 · 风险清单 |
+| [docs/M0-VERIFICATION-REPORT.md](docs/M0-VERIFICATION-REPORT.md) | M0 技术验证（110/110） |
+| [TODO.md](TODO.md) | 里程碑计划 |
+
+M1 已交付：Synapse(PG16) + Caddy + FastAPI 邀请服务的 Compose 部署、邀请码准入闭环
+（哈希存储 / 过期 / 尝试次数 / 一次性 / 并发原子性）、注册后自动进入固定加密房间、
+部署检查脚本与 A–J 集成测试套件。**产品 UI 尚未开发**（M2 起 Vue PWA）。
 
 ## 目录
 
 ```
-frontend/               Vue 3 PWA 客户端（M2）
+frontend/               Vue 3 PWA 客户端（M2，待建）
 backend/invite-service/ FastAPI 邀请管理 API（M1 已实现）
 infra/                  synapse / postgres / caddy 配置（livekit / coturn 为 M6 预留）
 scripts/                部署、检查、测试编排（render 为 Python 标准库，其余 bash）
@@ -34,22 +41,22 @@ m0/                     M0 技术验证工程（可复跑）
 m1/                     M1 集成测试工程（验收 A–J，Node + matrix-js-sdk）
 ```
 
-## 部署与测试（M1）
+## 部署与测试
 
 ```bash
 cp .env.example .env         # 填入真实值（全部 __CHANGE_ME__）
 scripts/deploy.sh            # 生产：拉镜像 → signing key 引导 → 渲染 → up
-scripts/check-deploy.sh      # 部署安全检查（报告落 m1/reports/）
+scripts/check-deploy.sh      # 部署安全检查（33 项，报告落 m1/reports/）
 
 # 本地测试（Windows 11 + Docker Desktop，Git Bash）：
 cp .env.example .env.test    # 值随机化（SYNAPSE_SERVER_NAME=aether.local 等，见 docs/DEPLOY.md）
-scripts/run-m1-tests.sh --fresh        # 主套件 A–J（68 项）+ 起栈
-scripts/check-deploy.sh --local        # 部署安全检查（31 项）
-scripts/run-m1-adversarial.sh --fresh  # QA 独立对抗套件（71 项，独占全新栈）
+scripts/run-m1-tests.sh --fresh        # 主套件 A–J（68 项，fresh 重建卷）
+scripts/check-deploy.sh --local        # 部署安全检查（33 项）
+scripts/run-m1-adversarial.sh          # QA 独立对抗套件（71 项，同栈即可）
 ```
 
-> 四人名额单调且只有 4 席：主套件与对抗套件**必须各自在 `--fresh` 重建的栈上运行**，
-> 不可同栈复跑。详见 [m1/README.md](m1/README.md) 与验收报告 §4 D-2。
+> 名额上限已移除，套件不再竞争稀缺席位：**三套可在同一栈上连续跑**，
+> `--fresh` 仅为结果可复现性推荐。合计 **172/172**（M1-R1 后基线）。
 
 管理操作（生成/作废邀请码）走本机回环 + `X-Admin-Key`：
 

@@ -10,7 +10,6 @@ classDiagram
         +str invite_admin_api_key
         +int code_ttl_seconds
         +int default_max_attempts
-        +int max_members
         +int token_ttl_minutes
         +int poll_seconds
         +classmethod load() AppConfig
@@ -99,9 +98,11 @@ classDiagram
         +json metadata
     }
 
+    %% M1-R1：名额上限已移除。max_members 列仅为兼容旧库保留，代码不再读取；
+    %% seats_used / AppConfig 中已无 max_members，此处仅作统计模型。
     class QuotaCounter {
         +int id
-        +int max_members
+        +int max_members_legacy
         +int seats_used
     }
 

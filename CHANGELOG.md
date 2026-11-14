@@ -56,6 +56,49 @@
   文字口径不一致；令牌发了未注册会永久占席，4 人系统可能凑不满 4 个真实账号。
   fail-closed、不破坏机密性，非安全阻断项；**M2 开工前需用户决策**接受或增加席位回收。
 
+## [0.2.2-m1-r1] - 2026-11-14
+
+### Changed（用户决策：彻底移除注册人数上限）
+- 邀请码成为**唯一准入控制**；`AETHER_MAX_MEMBERS` 从 `.env.example` / `docker-compose.yml` /
+  `config.py` / `.env.test` 全部移除。
+- `quota.py`：`QuotaExhausted` / `reserve_seat()` → `record_seat_usage()` 纯统计；
+  `/admin/v1/quota` 返回 `unlimited=true` / `max_members=null`；
+  `invite.py` 删除 409 `quota_exhausted` 分支（邀请码状态机与日志红线不变）。
+- `quota_counters.max_members` 列保留兼容旧库，不新增破坏性迁移；代码不再读取。
+- **`main.py`**：启动日志原读取已删除的 `cfg.max_members`，否则服务启动即 `AttributeError`
+  —— 回改过程中通过独立复跑发现的真实启动缺陷，已修复并验证 `unlimited=true` 日志正常输出。
+- 测试与编排：`test-quota.mjs` 覆写为 U0–U12 无上限语义；`test-adversarial.mjs` Q1–Q6 重写；
+  `check-deploy.sh` 增 2 项断言；`run-m1-adversarial.sh` 的 `--fresh` 由强制改为可选；
+  `run-all.mjs` / `run-m1-tests.sh` / `m1/README.md` 去掉「4 席预算、必须独占 fresh 栈」。
+
+### Verified（M1-R1 回归，真实执行）
+- 主集成套件 **68/68**（`run-m1-tests.sh --fresh`）：8 枚不同码并发全成功、第 5/6 个账号注册成功、
+  `seats_used` 3→11、`unlimited=true` 恒定、无 `quota_exhausted`、E2EE 密文断言 F13–F16 仍通过。
+- 部署检查 **33/33**（原 31 + 新增 2 项：容器 env 无 `AETHER_MAX_MEMBERS`、quota 端点 `unlimited/max_members`）。
+- QA 对抗套件 **71/71**：在刚跑完主套件的**同一栈**上直接执行（无 `--fresh`），
+  `pre=14` 时仍能发码 —— 实证无隐性上限且编排不再需要 fresh 独占。
+- 合计 **172/172，0 失败**。详见 `docs/M1-AMENDMENT-UNLIMITED.md`。
+
+### Resolved
+- **LR-M1-1 已消解**（席位概念取消）；`RISKS.md R2.5` 关闭、`R2.2` 改写、
+  新增 `R2.6`（人数不受控的资源/运维风险，M7 补监控与发码审计）。
+- 文档联动：`PRD-M1` / `DESIGN-M1` / `M1-TEST-REPORT` 加变更通告（原文保留可追溯）；
+  时序图、类图、DEPLOY、脚本注释同步；`M1-TEST-REPORT` 的 170/170 标注为**变更前版本**。
+
+## [0.3.0-m2-kickoff] - 2026-11-14
+
+### Verified（M2 开工首检，仅工具链）
+- 官方版本核实 + 最小工程 `.tmp-gen/m2-probe` 实证：TS 7.0.2 的 `exports` 不再暴露 `./lib/tsc`，
+  `vue-tsc 3.3.14` 仍依赖该路径 → `ERR_PACKAGE_PATH_NOT_EXPORTED`，类型检查失败。
+- 降级 **TypeScript 5.9.3** 后 `vue-tsc --noEmit` / `vite build` / PWA 产物
+  （`sw.js` / `manifest.webmanifest`）全部通过。
+- `DEPENDENCIES.md` 锁定 5.9.3；`RISKS.md R4.3` 改为「已验证并缓解」；
+  报告见 `docs/M2-KICKOFF-CHECK.md`。当前 shell 实测 Node v22.22.2 / npm 10.9.7
+  （与 M0 报告的 24.18.0 为不同环境，均满足 SDK `node>=22`）。
+
+### Not done（明确不宣称完成）
+- `frontend/` 脚手架、MatrixService、界面、PWA 外壳与 M2 测试**均尚未创建**。
+
 ## [0.0.1-m0] - 2026-11-14
 
 ### Added

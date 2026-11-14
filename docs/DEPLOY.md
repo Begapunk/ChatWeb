@@ -71,4 +71,6 @@ scripts/run-m1-tests.sh --fresh   # A–J 全量（重建卷）
 - synapse 起不来 → 看 `docker compose logs synapse`，多为 homeserver.yaml 渲染值缺失（重跑 render 脚本）。
 - invite-service 起不来 → `docker compose logs invite-service`：配置缺失会 fail-fast 并指明变量名；
   管理员登录失败且账号已存在 → 修正 `.env` 的 `SYNAPSE_ADMIN_PASSWORD`（须与自举时一致）。
-- 名额校准漂移 → `/admin/v1/quota` 查看 `seats_used` 与 `synapse_count`，服务会在下一成功事务自动取 max 自愈。
+- 席位统计漂移 → `/admin/v1/quota` 查看 `seats_used` 与 `synapse_count`（服务在下一成功事务取 max 自愈）。
+  **M1-R1 起该值仅作统计、不参与准入**，响应恒含 `unlimited=true` / `max_members=null`；
+  人数上限已移除，请勿据此判断「剩余名额」。规模由管理员发码纪律控制（见 `docs/RISKS.md` R2.6）。
