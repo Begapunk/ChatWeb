@@ -5,6 +5,9 @@
 > 单测 21/21、demo 回归 36/36）**。
 > 权威说明见 `docs/M2-LIVE-REPORT.md`；`docs/M2-KICKOFF-CHECK.md` 与
 > `docs/M2-DEMO-REPORT.md` 为历史阶段快照（顶部均有现行状态通告）。
+> **2026-11-15：M3 代码实现与静态门禁完成（typecheck 0 / 单测 34/34 / build 0 / demo 36/36），
+> 但「清浏览器数据 → 恢复 → 历史解密」真实安全门禁未执行（本机 Docker Linux 引擎 503）。
+> M3 不得宣称完成、当前为发布阻断状态，详见 `docs/M3-REPORT.md`。**
 
 ## M0 — 已完成 ✅
 - [x] 环境检查、版本锁定、API 审计
@@ -62,11 +65,26 @@
 > M4 加密附件、M5/M6 通知与通话尚未实现；清除浏览器数据仍会永久失去历史消息解密能力。
 > 详见 `docs/M2-LIVE-REPORT.md §5`。
 
-## M3 — 安全中心
-- [ ] 设备列表/验证状态/跨签名验证（emoji/QR）/设备撤销
-- [ ] 密钥备份引导、恢复密钥/口令恢复、清数据前强警告
-- [ ] 新未验证设备显著提醒；onlyAllowTrustedDevices 策略评估
-- [ ] 测试：清浏览器数据→恢复→历史解密；撤销设备→密钥不再分发
+## M3 — 安全中心（代码已实现 / ⛔ 真实安全门禁未执行 · 发布阻断）
+
+> 2026-11-15：实现与静态门禁已完成，但唯一能宣判 M3 完成的真实 E2E 门禁**尚未执行**
+> （Docker Desktop Linux 引擎无法启动，见 `docs/M3-REPORT.md §5`、`docs/RISKS.md R5.4`）。
+> 按红线：不宣称 M3 完成、不进入 M4；栈恢复后**从门禁继续**，不重做已完成部分。
+
+- [x] 开工首检：安装版 `matrix-js-sdk 45.1.0` 的 `.d.ts` / 源码实证核对（`docs/M3-KICKOFF-CHECK.md`）
+- [x] `security.ts` 纯逻辑（恢复密钥校验 / 状态汇总 / 设备合并）+ `security.test.ts` 13 项（单测 21 → **34/34**）
+- [x] MatrixService：构造期 `cryptoCallbacks.getSecretStorageKey`、跨签名 + 4S + key backup 引导、
+      恢复（`stop → 新建 client → 复用 cryptoDatabasePrefix`）、`refreshSecurity`、真实设备列表/撤销、SAS 全流程
+- [x] 设置中心真实 UI（状态卡片、一次性恢复密钥、导入恢复、真实设备、SAS 表情/数字）与登录页恢复密钥输入
+- [x] 恢复 fail-closed（错误密钥拒绝且停留登录页、不回退 demo）、`forgetSession()` 内存密钥清理
+- [x] 修复恢复路径漏传 UIA 回调 + 用正确 `UIAuthCallback<void>` 替代 `as never`（安装版 `.d.ts` 实证）
+- [x] `e2e/m3-security.mjs` 36 项安全门禁脚本 + `npm run e2e:m3`（**脚本已写、尚未真实执行**）
+- [x] 静态门禁：`typecheck` 0 / `test` 34/34 / `build` 0 / `smoke` 36/36
+- [ ] **⛔ `npm run e2e:m3` 真实跑通 36/36（阻塞：Docker Linux 引擎 503，需用户管理员执行 `wsl --shutdown` 后重启 Docker Desktop）**
+- [ ] `npm run e2e:live` 随栈恢复补跑（M2-R 回归）
+- [ ] 门禁通过后更新 README / CHANGELOG / M3-REPORT 并提交 M3 完成版本，再进入 M4
+- [ ] onlyAllowTrustedDevices 策略评估 / QR 验证 / 新未验证设备显著提醒（M3 可选项，未实现）
+- [ ] 撤销设备 → 密钥不再分发的真实 E2E 证明
 
 ## M4 — 加密附件
 - [ ] 按规范 EncryptedFile 实现图片/文件/语音附件加密上传下载（SDK 无高层 API）

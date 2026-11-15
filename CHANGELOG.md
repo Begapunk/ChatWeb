@@ -2,6 +2,41 @@
 
 > 按里程碑推进顺序排列（M0 → M1 → M2）。每个版本的 `Not done` 是**该版本交付当时**的边界快照，
 > 后续版本完成时以最新条目与 `README.md` / `docs/M2-LIVE-REPORT.md` 为准，不回改历史条目。
+> **本文件版本仍为 `0.5.0`（M2-R）**：M3 未通过安全门禁，不升版本、不发版。
+
+## [Unreleased] — M3 进展（2026-11-15，**未完成 / 发布阻断**）
+
+> 权威状态：[docs/M3-REPORT.md](docs/M3-REPORT.md)。**不得据此宣称 M3 完成。**
+
+### Added（代码已实现，静态门禁通过）
+- `frontend/src/services/security.ts`：恢复密钥校验/解码、安全状态汇总、设备信息合并（纯逻辑，不触碰持久化 API）。
+- `frontend/src/services/security.test.ts`：13 项单测，总数 21 → **34/34**。
+- M3 服务层：`cryptoCallbacks.getSecretStorageKey`、跨签名 + 4S(SSSS) + 服务器 key backup 首次引导、
+  从恢复密钥恢复跨签名私钥与历史 Megolm 会话密钥、真实设备列表/撤销、SAS 发起/接受/确认/不一致/取消。
+- 安全中心与登录页真实 UI：一次性恢复密钥（确认后从内存清除）、导入恢复密钥、真实设备、SAS 表情/数字比对。
+- `frontend/e2e/m3-security.mjs` 36 项安全门禁脚本 + `npm run e2e:m3`（**已编写、未执行**）。
+- `docs/M3-KICKOFF-CHECK.md`、`docs/M3-REPORT.md`；`docs/DEPENDENCIES.md §8` 安装版 `.d.ts` 核对表。
+
+### Fixed
+- 恢复路径 `bootstrapCrossSigning({})` 漏传 UIA 回调：SDK 明确「不传则不上传密钥」，
+  SSSS 缺跨签名私钥时会静默失败 → 首次引导与恢复路径均传入 `passwordAuth()`。
+- `passwordAuth()` 改用安装版 `UIAuthCallback<void>` 类型并去掉 `as never`，让 `vue-tsc` 真正校验 UIA 参数。
+- demo 烟测 S27 不再谎称「M3 待实现」；设置中心删除过时的 M3 待实现清单。
+
+### Verified（真实执行，本轮修正之后重跑）
+- `npm run typecheck` exit 0；`npm run test` **34/34**；`npm run build` exit 0（PWA precache 9 项）；
+  `npm run smoke` **36/36**；`node --check e2e/m3-security.mjs` exit 0。
+
+### Blocked / Not verified（**发布阻断项**）
+- ⛔ `npm run e2e:m3`（清浏览器数据 → 恢复 → 历史解密，36 项）**未执行**：
+  本机 Docker Desktop Linux 引擎无法启动（残留 AF_UNIX socket `EPERM` + engine 持续 `HTTP 503`），
+  真实 Synapse 栈不可用。已做 4 次干净重启与可逆备份重命名，均未绕过任何认证或安全策略。
+- ⛔ `npm run e2e:live` 本次未复跑（依赖同一栈），随栈恢复补跑。
+- 恢复步骤见 `docs/M3-REPORT.md §6`；风险登记见 `docs/RISKS.md R5.4`。
+
+### Not done
+- M4 加密附件、M5 Web Push、M6 通话、M7 发布门禁；M3 的 QR 验证与 `onlyAllowTrustedDevices` 策略评估。
+- 当前版本**不可作为正式私密通讯工具发布**。
 
 ## [0.0.1-m0] - 2026-11-14
 

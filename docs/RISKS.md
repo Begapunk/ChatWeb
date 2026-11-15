@@ -52,6 +52,9 @@
 | R4.6 | **M2-R 新增**：SDK `unconfigured room` 加密竞态 —— 客户端刚 `joinRoom` 自动入房、下一次 `/sync` 尚未把 `m.room.encryption` 交给 Rust Crypto 层时发送，SDK 抛 `Cannot encrypt event in unconfigured room`，**消息根本不到服务器**（表面看似「已发送」） | 高：消息静默丢失 / 用户误判已送达 | 查证 `rust-crypto.js:170-176` 与 `sync.js:1202-1212` 源码后，用公开 API `isEncryptionEnabledInRoom()` + `getUserDeviceInfo(peers, true)` 实现 `waitForEncryptionReady()` 有界等待房间加密配置/成员/设备密钥收敛；超时**取消发送并抛明确错误，绝不降级明文**；仅对明确时序竞态最多 3 次有界重试（对应 M0 F1）。单测覆盖「加密层缺失不调用 sendEvent / 超时不发明文 / 非竞态错误不重发」 | **已缓解并验证**（M2-R D4，e2e:live 32/32 ×3） |
 | R4.7 | **M2-R 新增**：验收脚本「假通过」—— 房间内已存在 M1 历史 `m.room.encrypted` 事件，仅断言「存在密文」即使本次消息未发出也会通过 | 高：安全门禁失效，把不加密的版本误判为通过 | 发送前取服务器事件 ID 基线，发送后**只取差集新事件**做断言（L12–L15b）：本次 `new=1 encrypted=1`、算法 `m.megolm.v1.aes-sha2`、含 ciphertext、无明文 / `session_key` / `body`；另加 L07b 等待服务器 `joined_members` 确认双端入房。B 端必须实际解密出明文（L10/L11） | **已缓解并验证**（M2-R D3） |
 | R4.8 | **M2-R 新增**：房间加密状态误报 E2EE —— 用「客户端 crypto 层就绪」兜底判定，会把未启用加密的房间标成 `encrypted` | 高：向用户虚假承诺机密性 | 严格只依据 `m.room.encryption` 状态事件判定 `Conversation.encrypted`；单测专门断言「crypto 层就绪但无状态事件 → `encrypted === false`」 | **已缓解并验证**（M2-R D2） |
+| R4.9 | **M3 新增**：恢复路径 `bootstrapCrossSigning({})` 未传 UIA 回调 —— SDK 注释明确「不提供 `authUploadDeviceSigningKeys` 则密钥不会上传」，若 SSSS 中缺少跨签名私钥而走「新建并上传」分支，恢复会静默失败 | 高：用户以为已恢复、实际跨签名与设备信任未建立 | 核对安装版 `crypto-api/index.d.ts:749-758` 后，**首次引导与恢复路径都传入 `passwordAuth()`**（`UIAuthCallback<void>`，密码仅存内存）；同时用正确的 `UIAuthCallback` 类型替代 `as never`，让类型检查真正生效 | **已修复，待真实 E2E 验证** |
+| R4.10 | **M3 新增**：恢复密钥/口令/私钥落盘或进日志 | 高：等于把 E2EE 的解密能力交给任何能读浏览器存储的人 | 恢复密钥解码后只存服务层内存；`createClient({ cryptoCallbacks })` 用闭包持有；`forgetSession()` 仅在断开/登出时清理；`security.test.ts` 用运行时 spy 断言恢复密钥处理链路不调用任何持久化 API；`e2e:m3` 门禁含 M10 / M27 / M36 三条存储与日志断言 | **静态单测已验证，浏览器 E2E 待执行** |
+| R4.11 | **M3 新增**：恢复失败被静默降级为「普通登录」或演示假数据 | 高：用户丢失历史消息却毫不知情 | `connect()` 携带恢复密钥时，恢复抛错即 `stop()` + `clearSessionSecrets()` 并抛出「恢复密钥无效或密钥恢复失败」，登录页显示错误、停留原页（fail-closed）；`e2e:m3` M23/M24 专门断言该行为 | **已实现，待真实 E2E 验证** |
 
 ## R5 运维（中）
 
@@ -60,3 +63,4 @@
 | R5.1 | 数据库/媒体/密钥未分离备份 | 灾难恢复失败 | 分离卷 + 备份脚本 + 恢复演练（M7） | 待实现 |
 | R5.2 | Synapse 升级破坏 E2EE 兼容 | 服务中断 | 升级前快照、staging 验证、版本锁定 | 待实现（M7） |
 | R5.3 | 日志/错误报告泄露明文或令牌 | 隐私泄露 | 日志红线：禁止记录消息正文、恢复密钥、access token；SDK 日志级别生产调高；审查门禁 | 已验证（对抗套件 LR1–LR3） |
+| R5.4 | **M3 验收阻断（2026-11-15）**：本机 Docker Desktop 的 Linux 引擎无法启动 —— 残留 `run/sailor-ingest.sock` 等 AF_UNIX 文件 `EPERM` 无法删除/重命名，`backend` 反复报 `Access is denied`，engine 持续 `HTTP 503`；`wsl.exe` 被本机安全策略黑名单禁止，`Restart-Service WslService` 需管理员权限 | **高：M3 的「清浏览器数据 → 恢复 → 历史解密」真实 E2E 安全门禁无法执行，故 M3 不得宣称完成、不得发布** | 已做的自动处置：备份并重命名残留文件、整体重命名 `Docker/run` 目录（可回滚）、4 次干净重启；均未能让 Linux VM 起来。**需用户人工操作**：以管理员执行 `wsl --shutdown` 后重启 Docker Desktop，或在 Docker Desktop GUI 执行 Restart / 重启系统。栈恢复后直接执行 `npm run e2e:m3`，**不重做已完成的实现与静态门禁** | **未缓解 · 当前发布阻断项** |

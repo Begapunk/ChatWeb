@@ -1,4 +1,4 @@
-# Aether 依赖版本锁定清单（M0 基线 + M2 / M2-R 更新）
+# Aether 依赖版本锁定清单（M0 基线 + M2 / M2-R / M3 更新）
 
 > 核实日期：2026-11-14。所有版本来自官方 registry / GitHub releases 当日查询，
 > 非记忆推断。生产安装必须使用精确版本（无 `^`/`~`），并提交 lockfile。
@@ -58,9 +58,9 @@
 
 | 组件 | 锁定版本 | 用途 |
 |---|---|---|
-| vitest | 5.1.0 | **M2-R 起实际运行**：`npm run test` 21/21（`src/services/matrix.test.ts` + `src/data/demo.test.ts`）。peers: vite ^6.4–^8 ✓；独立配置 `frontend/vitest.config.ts`（`environment: "node"`、只含 `src/**/*.test.ts`），**不复用 `vite.config.ts`**，避免 VitePWA 构建插件介入测试。**安装须用在线元数据**（`--prefer-offline` 会因过期 packument 误报 `@vitest/mocker@5.1.0` 不存在） |
+| vitest | 5.1.0 | **M2-R 起实际运行**：`npm run test` 21/21 → **M3 后 34/34**（`src/services/matrix.test.ts` + `src/data/demo.test.ts` + `src/services/security.test.ts`）。peers: vite ^6.4–^8 ✓；独立配置 `frontend/vitest.config.ts`（`environment: "node"`、只含 `src/**/*.test.ts`），**不复用 `vite.config.ts`**，避免 VitePWA 构建插件介入测试。**安装须用在线元数据**（`--prefer-offline` 会因过期 packument 误报 `@vitest/mocker@5.1.0` 不存在） |
 | @playwright/test | 1.65.1 | M0 版本核实基线（端到端多浏览器测试）；**M2/M2-R 未使用**，实际用 `playwright-core` 直接驱动本机 Chrome |
-| playwright-core | 1.65.1 | M0 已用；**精确锁定为 `frontend` devDependency**：`e2e/demo-smoke.mjs`（demo 36 项真实 Chrome 烟测，见 `docs/M2-DEMO-REPORT.md`）与 **`e2e/live-e2ee.mjs`（M2-R 双独立 Chrome 实例 E2EE 安全阻断门禁 32 项，见 `docs/M2-LIVE-REPORT.md`）**。免浏览器下载，直接指向本机 `chrome.exe` |
+| playwright-core | 1.65.1 | M0 已用；**精确锁定为 `frontend` devDependency**：`e2e/demo-smoke.mjs`（demo 36 项真实 Chrome 烟测，见 `docs/M2-DEMO-REPORT.md`）、**`e2e/live-e2ee.mjs`（M2-R 双独立 Chrome 实例 E2EE 安全阻断门禁 32 项，见 `docs/M2-LIVE-REPORT.md`）**、**`e2e/m3-security.mjs`（M3 清浏览器数据 → 恢复 → 历史解密安全门禁 36 项，`npm run e2e:m3`）**。免浏览器下载，直接指向本机 `chrome.exe` |
 | fake-indexeddb | 6.2.8 | Node 环境模拟 IndexedDB（M0 已用） |
 | esbuild | 0.28.2 | M0 浏览器验证打包 |
 
@@ -122,3 +122,29 @@
 **M0 F7 复核**：非房间成员管理员经客户端 API 读事件会 404，但 M1 的管理员是固定加密房间的
 创建者/成员，用其 token 读 `/rooms/{id}/messages` 返回 200；该管理员客户端从未 `initRustCrypto`，
 拿不到 Megolm 会话密钥，只能读到密文 —— 符合最小权限且可完成服务器侧密文证明。
+
+## 8. M3 安装版 `.d.ts` / 源码实证补充（2026-11-15，禁止凭记忆改动）
+
+开工首检记录见 `docs/M3-KICKOFF-CHECK.md`；以下为本轮实现前后再次核对**已安装
+`matrix-js-sdk 45.1.0`** 得到的结论，路径相对 `frontend/node_modules/matrix-js-sdk/lib/`。
+
+| API / 行为 | 证据位置 | 结论 |
+|---|---|---|
+| `bootstrapCrossSigning(opts)` | `crypto-api/index.d.ts:333` | 参数是 `BootstrapCrossSigningOpts`，**不能传 `void`** |
+| `BootstrapCrossSigningOpts.authUploadDeviceSigningKeys` | `crypto-api/index.d.ts:749-758` | 类型为 `UIAuthCallback<void>`；SDK 注释明确「不提供则密钥不会上传到服务器」。恢复路径也必须传，**防止 SSSS 无跨签名私钥时走新建分支静默失败** |
+| `UIAuthCallback<T>` | `interactive-auth.d.ts:115` | `(makeRequest: (authData: AuthDict \| null) => Promise<T>) => Promise<T>`；`AuthDict`（同文件 `:96`）含 `PasswordDict` 联合成员，`passwordAuth()` 直接传对象即可，**无需 `as never` 强转** |
+| `bootstrapSecretStorage(opts)` | `crypto-api/index.d.ts:370` | 已有默认 SSSS key 时**不会调用** `createSecretStorageKey`；恢复必须走构造期 `cryptoCallbacks.getSecretStorageKey` |
+| `CreateSecretStorageOpts` | `crypto-api/index.d.ts:1054-1068` | 仅 `createSecretStorageKey` / `setupNewKeyBackup` / `setupNewSecretStorage` 三个字段 |
+| `createRecoveryKeyFromPassphrase()` | `crypto-api/index.d.ts` | 不传口令时生成**随机 4S 恢复密钥**（规范路径）；`restoreKeyBackupWithPassphrase` 已 deprecated，不得使用 |
+| `cryptoCallbacks` | `client.d.ts`（`createClient` opts） | 属于**构造期**选项；M0 F2 实证同实例 `stop/start` 不重启 rust-crypto 循环，因此「设置页导入恢复密钥」必须 stop → 新建 client → 复用同一 `cryptoDatabasePrefix` |
+| `getSecretStorageKey({ keys })` | `client.d.ts` / `crypto-api` | `keys` 是加密该 secret 所用 keyId 集合；返回 `[Object.keys(keys)[0], privateKey]`，**无密钥时必须返回 `null`，绝不猜测或生成新密钥顶替** |
+| `CryptoEvent.VerificationRequestReceived` | `crypto-api/CryptoEvent.js` | 由 `MatrixClient` reEmitter 转发，监听对象必须是 client 而非 `cryptoApi` |
+| `verifier` | `models/VerificationRequest` | 是 **getter**，不是 `getVerifier()` 方法 |
+| `VerificationPhase` | `crypto-api/verification` | 数值：`Ready=3 / Started=4 / Cancelled=5 / Done=6` |
+| 设备撤销 `deleteDevice` | `client.d.ts` | UIA 需要 `m.login.password`，与跨签名公钥上传共用同一个密码回调 |
+
+**M3 新增/改动文件**：`frontend/src/services/security.ts`（纯逻辑：恢复密钥校验、状态汇总、设备合并）、
+`security.test.ts`（13 项）、`matrix.ts`（`cryptoCallbacks` / 引导 / 恢复 / 设备 / SAS）、
+`stores/chat.ts`（安全操作接线）、`views/SettingsView.vue`（真实安全中心）、
+`views/LoginView.vue`（登录页恢复密钥输入）、`e2e/m3-security.mjs`（安全门禁）、
+`package.json` 新增 `e2e:m3`。**未新增任何第三方依赖**，仍锁定上表版本。

@@ -17,6 +17,7 @@ const tab = ref<"login" | "invite">("login");
 const name = ref<string>("");
 const password = ref<string>("");
 const inviteCode = ref<string>("");
+const recoveryKey = ref<string>("");
 const notice = ref<string>("");
 
 const phaseLabel = computed<string>(() => {
@@ -56,20 +57,25 @@ async function connectLive(): Promise<void> {
     return;
   }
   try {
+    const recovery = recoveryKey.value.trim() || undefined;
     if (tab.value === "invite") {
       await chat.connectLive({
         kind: "register",
         inviteCode: inviteCode.value,
         username: name.value.trim(),
         password: password.value,
+        recoveryKey: recovery,
       });
     } else {
       await chat.connectLive({
         kind: "login",
         username: name.value.trim(),
         password: password.value,
+        recoveryKey: recovery,
       });
     }
+    // 恢复密钥已交给 MatrixService（只在内存），立刻清空本组件的引用，避免残留在 DOM 状态里。
+    recoveryKey.value = "";
     await router.push("/");
   } catch (err) {
     notice.value = err instanceof Error ? err.message : String(err);
@@ -139,6 +145,17 @@ async function connectLive(): Promise<void> {
       <label class="auth__field">
         <span>{{ tab === 'invite' ? '设置密码' : '密码' }}</span>
         <input v-model="password" class="ae-input" type="password" placeholder="••••••••" autocomplete="current-password" />
+      </label>
+
+      <label v-if="mode === 'live' && tab === 'login'" class="auth__field">
+        <span>恢复密钥（可选 · 清除浏览器数据后找回历史消息）</span>
+        <input
+          v-model="recoveryKey"
+          class="ae-input ae-mono"
+          type="password"
+          autocomplete="off"
+          placeholder="仅在本机内存中用于解密密钥备份，不会持久化或上传"
+        />
       </label>
 
       <label class="auth__field">

@@ -21,7 +21,50 @@ import * as sdk from "matrix-js-sdk";
 import { initAsync as initCryptoWasm } from "@matrix-org/matrix-sdk-crypto-wasm";
 import type { MatrixClient, MatrixEvent, Room } from "matrix-js-sdk";
 import { reactive } from "vue";
+import {
+  VerificationPhase,
+  VerificationRequestEvent,
+  VerifierEvent,
+  type ShowSasCallbacks,
+  type VerificationRequest,
+  type Verifier,
+} from "matrix-js-sdk/lib/crypto-api/verification.js";
+import { CryptoEvent } from "matrix-js-sdk/lib/crypto-api/CryptoEvent.js";
+import type { UIAuthCallback } from "matrix-js-sdk/lib/interactive-auth.js";
 import type { Attachment, Contact, Conversation, Message, MessageKind } from "../types";
+import {
+  decodeUserRecoveryKey,
+  mergeDeviceInfo,
+  summarizeSecurity,
+  type SecurityDevice,
+  type SecurityStatus,
+} from "./security";
+
+/** 安全中心可观察状态。恢复密钥只在内存中短暂存在，绝不写入 localStorage / sessionStorage。 */
+export const securityState = reactive({
+  busy: false,
+  error: "",
+  notice: "",
+  /** 首次引导生成的恢复密钥，展示一次后由 clearRecoveryKey() 清空。 */
+  recoveryKey: "",
+  overview: null as {
+    status: SecurityStatus;
+    devices: SecurityDevice[];
+  } | null,
+  verification: {
+    active: false,
+    phase: "idle" as "idle" | "requested" | "ready" | "showing" | "done" | "cancelled",
+    emoji: [] as string[],
+    decimal: null as [number, number, number] | null,
+    otherDeviceId: "",
+    error: "",
+  },
+});
+
+export function clearRecoveryKey(): void {
+  // 覆盖内存中的字符串引用；JS 无法保证立即擦除，但不持久化、不进日志、不写 DOM 之外的存储。
+  securityState.recoveryKey = "";
+}
 
 export type LivePhase = "idle" | "wasm" | "auth" | "crypto" | "sync" | "ready" | "error";
 export type AppMode = "demo" | "live";
@@ -173,6 +216,16 @@ export class MatrixService {
   private joinTimer: number | undefined;
   private joinAttempted = new Set<string>();
   private timelineSignature = "";
+  /** 只在内存的会话凭据：供跨签名 UIA、设备撤销 UIA 与恢复密钥重连使用，绝不持久化。 */
+  private sessionPassword = "";
+  private sessionCredentials: LiveCredentials | null = null;
+  private sessionDisplayName = "";
+  /** 4S 私钥（32 字节）：由恢复密钥解码或首次引导生成，只在内存，供 cryptoCallbacks 读取。 */
+  private secretStorageKey: Uint8Array<ArrayBuffer> | null = null;
+  private restoredKeys = 0;
+  /** 正在进行的 SAS 验证请求与回调，只在内存。 */
+  private verificationRequest: VerificationRequest | null = null;
+  private sasCallbacks: Pick<ShowSasCallbacks, "confirm" | "mismatch" | "cancel"> | null = null;
 
   onChange(cb: () => void): () => void {
     this.changeListeners.add(cb);
@@ -251,13 +304,28 @@ export class MatrixService {
     return toCredentials(resp as RegisterResponse);
   }
 
-  /** 建立加密客户端：device_id 重建 → initRustCrypto → sync PREPARED → 自动入房。 */
-  async connect(creds: LiveCredentials, password: string, displayName?: string): Promise<LiveIdentity> {
+  /** 建立加密客户端：device_id 重建 → initRustCrypto → sync PREPARED → 自动入房。
+   *  M3：可在连接时携带恢复密钥（4S 私钥），SDK 通过 cryptoCallbacks 在需要解密 SSSS 时取用。
+   *  cryptoCallbacks 是 createClient 构造期选项，无法连接后追加（见 docs/M3-KICKOFF-CHECK.md §3）。 */
+  async connect(
+    creds: LiveCredentials,
+    password: string,
+    displayName?: string,
+    recoveryKey?: string,
+  ): Promise<LiveIdentity> {
     await MatrixService.loadWasm();
     this.stop();
     matrixServiceStatus.mode = "live";
     matrixServiceStatus.phase = "crypto";
     matrixServiceStatus.error = "";
+    this.sessionPassword = password;
+    this.sessionCredentials = creds;
+    this.sessionDisplayName = displayName || shortName(creds.userId);
+    this.restoredKeys = 0;
+    securityState.notice = "";
+    securityState.error = "";
+    // 恢复密钥只在内存：解码后交给 createClient 的回调闭包，绝不写入 localStorage / sessionStorage。
+    this.secretStorageKey = recoveryKey ? decodeUserRecoveryKey(recoveryKey) : null;
 
     const prefix = `aether-live-${creds.userId.replace(/[^a-z0-9]/gi, "_")}`;
     const storageKey = await deriveStorageKey(creds.userId, password);
@@ -266,8 +334,17 @@ export class MatrixService {
       userId: creds.userId,
       deviceId: creds.deviceId,
       accessToken: creds.accessToken,
+      cryptoCallbacks: {
+        getSecretStorageKey: async ({ keys }) => {
+          const keyId = Object.keys(keys)[0];
+          const key = this.secretStorageKey;
+          // 没有恢复密钥时返回 null（SDK 会抛「无密钥」），绝不猜测或生成新密钥顶替。
+          return keyId && key ? ([keyId, key] as [string, Uint8Array<ArrayBuffer>]) : null;
+        },
+      },
     });
     await client.initRustCrypto({ useIndexedDB: true, cryptoDatabasePrefix: prefix, storageKey });
+    this.bindVerificationEvents(client);
     matrixServiceStatus.cryptoReady = true;
     matrixServiceStatus.deviceId = creds.deviceId;
     matrixServiceStatus.userId = creds.userId;
@@ -285,6 +362,20 @@ export class MatrixService {
     await prepared;
 
     this.client = client;
+
+    // M3：连接时携带恢复密钥则立即执行恢复（清浏览器数据后的场景）。
+    // 恢复失败必须让整个连接失败并清理内存凭据，绝不静默当作普通登录（fail-closed）。
+    if (this.secretStorageKey) {
+      try {
+        await this.restoreSecurityFromKey();
+      } catch (err) {
+        this.stop();
+        this.clearSessionSecrets();
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new Error(`恢复密钥无效或密钥恢复失败：${msg}`);
+      }
+    }
+
     matrixServiceStatus.connected = true;
     matrixServiceStatus.e2ee = client.getCrypto() !== undefined;
     matrixServiceStatus.phase = "ready";
@@ -556,6 +647,344 @@ export class MatrixService {
       online: false,
       verified: false,
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // M3 安全中心：SSSS / 密钥备份恢复 / 跨签名 / 真实设备 / SAS 验证
+  // 所有 API 签名均已核对安装版 matrix-js-sdk 45.1.0 的 .d.ts 与源码，
+  // 证据见 docs/M3-KICKOFF-CHECK.md。恢复密钥与口令只在内存，绝不持久化。
+  // ---------------------------------------------------------------------------
+
+  private clearSessionSecrets(): void {
+    this.sessionPassword = "";
+    this.sessionCredentials = null;
+    this.sessionDisplayName = "";
+    this.secretStorageKey = null;
+    this.restoredKeys = 0;
+  }
+
+  /** 断开/登出时显式清除内存中的口令与 4S 私钥。connect() 内部的 stop() 不会清。 */
+  forgetSession(): void {
+    this.clearSessionSecrets();
+    clearRecoveryKey();
+    securityState.notice = "";
+    securityState.error = "";
+    securityState.overview = null;
+    securityState.verification.active = false;
+    securityState.verification.phase = "idle";
+  }
+
+  private requireCrypto() {
+    const cryptoApi = this.requireClient().getCrypto();
+    if (!cryptoApi) throw new Error("加密层未就绪（Rust Crypto WASM 未初始化）");
+    return cryptoApi;
+  }
+
+  /** UIA 密码回调：跨签名公钥上传与设备撤销都需要 m.login.password。
+   *  类型依据安装版 matrix-js-sdk 45.1.0 的 lib/interactive-auth.d.ts：
+   *  UIAuthCallback<T> = (makeRequest: (authData: AuthDict | null) => Promise<T>) => Promise<T>，
+   *  AuthDict 含 PasswordDict 联合成员，因此这里直接传对象即可，无需 as never 强转。 */
+  private passwordAuth(): UIAuthCallback<void> {
+    return async (makeRequest) => {
+      await makeRequest({
+        type: "m.login.password",
+        identifier: { type: "m.id.user", user: this.requireClient().getUserId() },
+        password: this.sessionPassword,
+      });
+    };
+  }
+
+  /**
+   * 首次引导：建立跨签名 + 4S(SSSS) + 服务器密钥备份，返回**一次性**恢复密钥。
+   *
+   * 顺序依据 M0 T05 已真实跑通的序列：bootstrapCrossSigning → bootstrapSecretStorage。
+   * 恢复密钥由 createRecoveryKeyFromPassphrase() 随机生成（不传口令，符合 Matrix 规范；
+   * restoreKeyBackupWithPassphrase 已 deprecated）。生成后立刻写入内存 secretStorageKey，
+   * 让 createClient 注入的 getSecretStorageKey 回调能在同一次引导中加密 SSSS 内容。
+   */
+  async setupKeyBackup(): Promise<string> {
+    const cryptoApi = this.requireCrypto();
+    securityState.busy = true;
+    securityState.error = "";
+    try {
+      const generated = await cryptoApi.createRecoveryKeyFromPassphrase();
+      if (!generated?.encodedPrivateKey) throw new Error("恢复密钥生成失败");
+      this.secretStorageKey = generated.privateKey;
+
+      await cryptoApi.bootstrapCrossSigning({
+        authUploadDeviceSigningKeys: this.passwordAuth(),
+      });
+      await cryptoApi.bootstrapSecretStorage({
+        setupNewKeyBackup: true,
+        createSecretStorageKey: async () => ({
+          keyInfo: { name: "Aether 恢复密钥" },
+          privateKey: generated.privateKey,
+          encodedPrivateKey: generated.encodedPrivateKey,
+        }),
+      });
+      await cryptoApi.checkKeyBackupAndEnable();
+      securityState.recoveryKey = generated.encodedPrivateKey;
+      securityState.notice = "密钥备份已建立。请立即离线抄写恢复密钥并确认，服务器无法帮你找回。";
+      await this.refreshSecurity();
+      this.emit();
+      return generated.encodedPrivateKey;
+    } catch (err) {
+      securityState.error = err instanceof Error ? err.message : String(err);
+      throw err;
+    } finally {
+      securityState.busy = false;
+    }
+  }
+
+  /**
+   * 用恢复密钥重建连接：清浏览器数据后在设置页导入恢复密钥时调用。
+   * cryptoCallbacks 是 createClient 的构造期选项，且 M0 F2 实证同实例 stop/start
+   * 不会重启 rust-crypto 循环，因此必须「停止 → 新建客户端实例 → 复用同一
+   * cryptoDatabasePrefix」；口令只在内存，正好可从 sessionPassword 复用。
+   */
+  async reconnectWithRecoveryKey(recoveryKey: string): Promise<{ total: number; imported: number }> {
+    const creds = this.sessionCredentials;
+    if (!creds || !this.sessionPassword) {
+      throw new Error("当前会话凭据已失效，请重新登录后从登录页输入恢复密钥");
+    }
+    // 先做本地格式校验，避免用明显非法的输入重建连接。
+    decodeUserRecoveryKey(recoveryKey);
+    securityState.busy = true;
+    securityState.error = "";
+    const password = this.sessionPassword;
+    const displayName = this.sessionDisplayName;
+    try {
+      await this.connect(creds, password, displayName, recoveryKey);
+      return { total: this.restoredKeys, imported: this.restoredKeys };
+    } catch (err) {
+      securityState.error = err instanceof Error ? err.message : String(err);
+      throw err;
+    } finally {
+      securityState.busy = false;
+    }
+  }
+
+  /** 从 4S 恢复跨签名私钥 + 备份解密密钥 + 历史 Megolm 会话密钥。仅内部调用。 */
+  private async restoreSecurityFromKey(): Promise<{ total: number; imported: number }> {
+    const cryptoApi = this.requireCrypto();
+    // 1) 从 SSSS 导入跨签名私钥并自签本设备（源码：CrossSigningIdentity.js:38-80，正常路径无需 UIA）。
+    //    仍传入 UIA 回调：若 SSSS 中不存在跨签名私钥，SDK 会走「新建密钥并上传」分支，
+    //    此时必须能用 m.login.password 完成 UIA，否则恢复会静默失败（SDK 文档明确
+    //    「不传 authUploadDeviceSigningKeys 则不会上传密钥」）。fail-closed 要求覆盖该边界。
+    await cryptoApi.bootstrapCrossSigning({
+      authUploadDeviceSigningKeys: this.passwordAuth(),
+    });
+    // 2) 从 SSSS 读取 m.megolm_backup.v1，与服务器备份版本比对后缓存解密密钥。
+    await cryptoApi.loadSessionBackupPrivateKeyFromSecretStorage();
+    // 3) 下载并导入历史会话密钥；SDK 的 onRoomKeysUpdated 会自动重试 UTD 事件解密。
+    const result = await cryptoApi.restoreKeyBackup();
+    this.restoredKeys = result.imported;
+    // 4) 恢复后续自动备份，避免恢复之后的新消息没有备份。
+    await cryptoApi.checkKeyBackupAndEnable();
+    securityState.notice = `已从密钥备份恢复 ${result.imported}/${result.total} 条会话密钥`;
+    await this.refreshSecurity();
+    this.emit();
+    return { total: result.total, imported: result.imported };
+  }
+
+  /** 汇总安全状态与真实设备列表（不使用任何演示数据）。 */
+  async refreshSecurity(): Promise<void> {
+    const client = this.requireClient();
+    const cryptoApi = client.getCrypto();
+    const me = client.getUserId() ?? "";
+    if (!cryptoApi) {
+      securityState.overview = {
+        status: summarizeSecurity({
+          crossSigningReady: false,
+          secretStorageReady: false,
+          backupVersion: null,
+          backupKeyCount: null,
+          backupActiveVersion: null,
+          restoredKeys: this.restoredKeys,
+        }),
+        devices: [],
+      };
+      return;
+    }
+    const [crossSigningReady, secretStorageReady, backupInfo, activeVersion, deviceInfo, serverDevices] =
+      await Promise.all([
+        cryptoApi.isCrossSigningReady(),
+        cryptoApi.isSecretStorageReady(),
+        cryptoApi.getKeyBackupInfo().catch(() => null),
+        cryptoApi.getActiveSessionBackupVersion().catch(() => null),
+        cryptoApi.getUserDeviceInfo([me], true).catch(() => undefined),
+        client.getDevices().catch(() => ({ devices: [] })),
+      ]);
+    securityState.overview = {
+      status: summarizeSecurity({
+        crossSigningReady,
+        secretStorageReady,
+        backupVersion: backupInfo?.version ?? null,
+        backupKeyCount: backupInfo?.count ?? null,
+        backupActiveVersion: activeVersion,
+        restoredKeys: this.restoredKeys,
+      }),
+      devices: mergeDeviceInfo(serverDevices.devices ?? [], deviceInfo?.get(me), client.getDeviceId() ?? ""),
+    };
+    this.emit();
+  }
+
+  /** 手动标记/取消标记设备为已验证（setDeviceVerified 不依赖跨签名）。 */
+  async setDeviceTrust(deviceId: string, verified: boolean): Promise<void> {
+    const me = this.requireClient().getUserId();
+    if (!me) throw new Error("无法确定当前用户");
+    await this.requireCrypto().setDeviceVerified(me, deviceId, verified);
+    await this.refreshSecurity();
+  }
+
+  /** 用自签名密钥跨签名某个设备（需先完成跨签名引导）。 */
+  async crossSignDevice(deviceId: string): Promise<void> {
+    const cryptoApi = this.requireCrypto();
+    if (!(await cryptoApi.isCrossSigningReady())) {
+      throw new Error("跨签名尚未就绪，请先建立密钥备份");
+    }
+    await cryptoApi.crossSignDevice(deviceId);
+    await this.refreshSecurity();
+  }
+
+  /** 撤销设备：Synapse 需要 UIA，密码取自内存会话凭据，不弹给前端表单收集。 */
+  async revokeDevice(deviceId: string): Promise<void> {
+    const client = this.requireClient();
+    const me = client.getUserId();
+    if (!me) throw new Error("无法确定当前用户");
+    if (deviceId === client.getDeviceId()) throw new Error("不能撤销当前正在使用的设备");
+    const auth = {
+      type: "m.login.password",
+      identifier: { type: "m.id.user", user: me },
+      password: this.sessionPassword,
+    };
+    try {
+      await client.deleteDevice(deviceId, auth as never);
+    } catch (err) {
+      // 部分 Synapse 版本首轮返回 401 并带 session，需把 session 并入 auth 重放一次。
+      const session = (err as { data?: { session?: string } })?.data?.session;
+      if (session) {
+        await client.deleteDevice(deviceId, { ...auth, session } as never);
+      } else {
+        throw err;
+      }
+    }
+    await this.refreshSecurity();
+  }
+
+  /** 注册收到的验证请求监听。client.js:1141 证实该事件由 client 通过 reEmitter 转发，
+   *  因此监听挂在 MatrixClient 上，不是 CryptoApi（CryptoApi 类型未声明 on）。 */
+  private bindVerificationEvents(client: MatrixClient): void {
+    client.on(CryptoEvent.VerificationRequestReceived as never, ((request: VerificationRequest) => {
+      this.verificationRequest = request;
+      securityState.verification.active = true;
+      securityState.verification.phase = "requested";
+      securityState.verification.otherDeviceId = request.otherDeviceId ?? "";
+      securityState.verification.error = "";
+      securityState.verification.emoji = [];
+      this.emit();
+    }) as never);
+  }
+
+  /** 发起对自有另一设备的 SAS（emoji）验证。 */
+  async requestVerification(deviceId: string): Promise<void> {
+    const cryptoApi = this.requireCrypto();
+    const me = this.requireClient().getUserId();
+    if (!me) throw new Error("无法确定当前用户");
+    securityState.verification.active = true;
+    securityState.verification.phase = "requested";
+    securityState.verification.otherDeviceId = deviceId;
+    securityState.verification.error = "";
+    securityState.verification.emoji = [];
+    const request = await cryptoApi.requestDeviceVerification(me, deviceId);
+    this.verificationRequest = request;
+    await this.watchVerification(request, true);
+  }
+
+  /** 接受收到的验证请求（由 crypto.verificationRequestReceived 事件写入）。 */
+  async acceptIncomingVerification(): Promise<void> {
+    const request = this.verificationRequest;
+    if (!request) throw new Error("没有待处理的验证请求");
+    await request.accept();
+    await this.watchVerification(request, false);
+  }
+
+  /** 等待 phase 到 Ready（发起方）或 Started（接收方），再挂 SAS 回调并启动 verify()。 */
+  private async watchVerification(request: VerificationRequest, initiatedByMe: boolean): Promise<void> {
+    const verifier: Verifier = await new Promise((resolve, reject) => {
+      const deadline = window.setTimeout(() => {
+        cleanup();
+        reject(new Error("等待对方接受验证超时"));
+      }, 60_000);
+      const onChange = () => {
+        if (request.phase === VerificationPhase.Cancelled) {
+          cleanup();
+          reject(new Error("对方取消了验证"));
+          return;
+        }
+        if (initiatedByMe && request.phase === VerificationPhase.Ready) {
+          cleanup();
+          request.startVerification("m.sas.v1").then(resolve, reject);
+        } else if (!initiatedByMe && request.phase === VerificationPhase.Started && request.verifier) {
+          cleanup();
+          resolve(request.verifier);
+        }
+      };
+      const cleanup = () => {
+        window.clearTimeout(deadline);
+        request.off(VerificationRequestEvent.Change, onChange);
+      };
+      request.on(VerificationRequestEvent.Change, onChange);
+      onChange();
+    });
+
+    verifier.on(VerifierEvent.ShowSas, (sas: ShowSasCallbacks) => {
+      this.sasCallbacks = sas;
+      securityState.verification.phase = "showing";
+      securityState.verification.emoji = (sas.sas.emoji ?? []).map((e) => e[0]);
+      securityState.verification.decimal = sas.sas.decimal ?? null;
+      this.emit();
+    });
+    verifier.on(VerifierEvent.Cancel, () => {
+      this.sasCallbacks = null;
+      securityState.verification.phase = "cancelled";
+      securityState.verification.error = "对方取消了验证";
+      this.emit();
+    });
+    void verifier.verify().then(
+      async () => {
+        securityState.verification.phase = "done";
+        securityState.verification.active = false;
+        this.sasCallbacks = null;
+        await this.refreshSecurity();
+      },
+      (err: unknown) => {
+        securityState.verification.phase = "cancelled";
+        securityState.verification.error = err instanceof Error ? err.message : String(err);
+      },
+    );
+  }
+
+  /** 用户确认两端 emoji 一致；不一致必须调 mismatchSas()，绝不默认通过。 */
+  async confirmSas(): Promise<void> {
+    if (!this.sasCallbacks) throw new Error("尚未生成 SAS 表情，不能确认");
+    await this.sasCallbacks.confirm();
+  }
+
+  mismatchSas(): void {
+    this.sasCallbacks?.mismatch();
+    this.sasCallbacks = null;
+    securityState.verification.phase = "cancelled";
+    securityState.verification.error = "双方表情不一致，验证已取消（未标记为已验证）";
+  }
+
+  cancelVerification(): void {
+    this.sasCallbacks?.cancel();
+    void this.verificationRequest?.cancel();
+    this.verificationRequest = null;
+    this.sasCallbacks = null;
+    securityState.verification.active = false;
+    securityState.verification.phase = "cancelled";
   }
 
   /** 供验收脚本使用：读取某条事件的原始 wire 类型与内容（验证服务器只见密文）。 */

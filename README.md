@@ -14,8 +14,13 @@
 - **M2 真实加密链路：已实现并通过安全阻断门禁** ✅
   - 双浏览器 E2EE 验收 `npm run e2e:live` **32/32，连续三次通过**；
     服务器侧实证本次事件只有 `m.room.encrypted`（Megolm 密文），不含明文
-  - 单元测试 **21/21**、`typecheck` / `build` 通过、演示模式回归 **36/36**
+  - 单元测试 **34/34**（含 M3 新增 13 项）、`typecheck` / `build` 通过、演示模式回归 **36/36**
   - 完整报告：[docs/M2-LIVE-REPORT.md](docs/M2-LIVE-REPORT.md)
+- **M3 密钥备份/恢复：代码已实现，真实安全门禁未执行（⛔ 发布阻断）**
+  - 已实现 4S/SSSS 恢复密钥、服务器 key backup、跨签名、真实设备列表与撤销、SAS 验证、安全中心与登录页恢复入口
+  - 静态门禁通过：`typecheck` 0 / 单测 **34/34** / `build` 0 / demo 回归 **36/36**；`e2e:m3` 36 项门禁脚本已编写但**尚未真实执行**
+  - 阻塞原因：本机 Docker Desktop Linux 引擎无法启动（残留 socket `EPERM` + engine 持续 503），Synapse 栈不可用
+  - 权威说明：[docs/M3-REPORT.md](docs/M3-REPORT.md)；风险项 `docs/RISKS.md R5.4`
 - **演示模式仍保留**：无需 Docker 即可试用界面，但它**不联网、不加密**，
   与真实链路在 UI 上显式区分；请勿用于任何真实私密对话
 
@@ -29,14 +34,18 @@
 > 安全门禁复现：`npm run e2e:live`（失败即 exit 1）。
 > 详见 [frontend/README.md](frontend/README.md)。
 
-> ⚠️ **M3+ 尚未实现**：密钥备份/恢复、跨签名设备验证、加密附件、Web Push、通话。
-> 因此**清除浏览器数据会丢失本设备解密密钥、历史消息无法解密**；
+> ⛔ **M3 不得宣称完成**：恢复链路的代码与静态测试已落地，但「清除浏览器数据 → 恢复 →
+> 历史密文重新解密」的**真实安全门禁尚未执行**，因此不得宣称密钥恢复/跨签名验证可用。
+> 在门禁通过前，**清除浏览器数据仍会丢失本设备解密密钥、历史消息无法解密**；
 > 凭据只在内存，刷新页面需重新连接服务器（UI 会明确提示，不会静默回退演示数据）。
-> 当前版本**不可作为正式私密通讯工具发布**，见 [docs/M2-LIVE-REPORT.md §5](docs/M2-LIVE-REPORT.md)。
+> M4 加密附件、M5 Web Push、M6 通话、M7 发布门禁**均未实现**。
+> 当前版本**不可作为正式私密通讯工具发布**，见 [docs/M3-REPORT.md](docs/M3-REPORT.md)。
 
 | 文档 | 说明 |
 |---|---|
 | [docs/M1-AMENDMENT-UNLIMITED.md](docs/M1-AMENDMENT-UNLIMITED.md) | **现行准入语义与权威变更清单**（回改文件 + 172/172 回归证据） |
+| [docs/M3-REPORT.md](docs/M3-REPORT.md) | **M3 现行状态权威报告**：实现范围、静态门禁证据、36 项安全门禁设计、Docker 引擎阻断诊断与恢复步骤 |
+| [docs/M3-KICKOFF-CHECK.md](docs/M3-KICKOFF-CHECK.md) | M3 开工首检：跨签名 / 4S / 恢复 / SAS 的安装版 SDK API 实证核对 |
 | [docs/M2-LIVE-REPORT.md](docs/M2-LIVE-REPORT.md) | **M2 真实链路权威验收报告**：32/32 双浏览器 E2EE 门禁、4 个真实缺陷修复、SDK 实证、边界清单 |
 | [docs/M2-DEMO-REPORT.md](docs/M2-DEMO-REPORT.md) | M2 演示版交付报告（历史快照）：36/36 烟测、离线浮层缺陷、试用方法 |
 | [docs/M2-KICKOFF-CHECK.md](docs/M2-KICKOFF-CHECK.md) | M2 开工首检 + 脚手架验证：TS7/vue-tsc 不兼容实证，TypeScript 锁定 5.9.3 |

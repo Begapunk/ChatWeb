@@ -12,9 +12,12 @@ import {
   MatrixService,
   matrixService,
   matrixServiceStatus,
+  securityState,
+  clearRecoveryKey,
   resetLiveStatus,
   clearLiveSession,
 } from "../services/matrix";
+import { dataLossWarning, type SecurityDevice, type SecurityStatus } from "../services/security";
 import type { LiveCredentials } from "../services/matrix";
 import type {
   Attachment,
@@ -38,8 +41,8 @@ const meFallback: Contact = {
 };
 
 export type LiveConnectOptions =
-  | { kind: "register"; inviteCode: string; username: string; password: string }
-  | { kind: "login"; username: string; password: string };
+  | { kind: "register"; inviteCode: string; username: string; password: string; recoveryKey?: string }
+  | { kind: "login"; username: string; password: string; recoveryKey?: string };
 
 /**
  * 双数据源状态层：
@@ -74,6 +77,18 @@ export const useChatStore = defineStore("chat", () => {
   const meId = computed<string>(() =>
     isLive.value && matrixServiceStatus.userId ? matrixServiceStatus.userId : ME_ID,
   );
+
+  // M3：live 模式的设备列表来自真实 Matrix device keys，绝不混入演示假设备。
+  const securityDevices = computed<SecurityDevice[]>(
+    () => (isLive.value ? securityState.overview?.devices ?? [] : []),
+  );
+  const securityStatus = computed<SecurityStatus | null>(
+    () => (isLive.value ? securityState.overview?.status ?? null : null),
+  );
+  const dataWarning = computed<string>(() => {
+    const s = securityStatus.value;
+    return s ? dataLossWarning(s) : "";
+  });
 
   function lastMessage(roomId: string): Message | undefined {
     const list = messages.value[roomId] ?? [];
@@ -294,7 +309,10 @@ export const useChatStore = defineStore("chat", () => {
 
   function verifyDevice(id: string): void {
     if (isLive.value) {
-      liveNotice.value = "跨签名设备验证属于 M3，当前未实现。";
+      // M3：改为请求真实 SAS（emoji）验证，由安全中心的验证面板完成比对。
+      void matrixService.requestVerification(id).catch((err: unknown) => {
+        liveError.value = err instanceof Error ? err.message : String(err);
+      });
       return;
     }
     devices.value = devices.value.map((d) => (d.id === id ? { ...d, verified: true } : d));
@@ -323,13 +341,20 @@ export const useChatStore = defineStore("chat", () => {
       } else {
         creds = await MatrixService.login(options.username, options.password);
       }
-      const identity = await matrixService.connect(creds, options.password, options.username);
+      const identity = await matrixService.connect(
+        creds,
+        options.password,
+        options.username,
+        options.recoveryKey,
+      );
       displayName.value = identity.displayName;
       loggedIn.value = true;
       roomOverrides.value = {};
       unsubscribe?.();
       unsubscribe = matrixService.onChange(syncFromLive);
       syncFromLive();
+      // 建立连接后立即取一次真实安全状态，避免安全中心短暂显示为空。
+      void matrixService.refreshSecurity().catch(() => {});
       activeRoomId.value = conversations.value[0]?.id ?? "";
     } catch (err) {
       matrixService.stop();
@@ -341,13 +366,65 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  /** 断开真实链路并回到演示模式（不会删除浏览器内的加密存储）。 */
+  // ---- M3 安全中心操作（仅 live 有效；失败信息回写 securityState.error） ----
+  async function setupKeyBackup(): Promise<string> {
+    if (!isLive.value) throw new Error("演示模式不产生密钥，请连接真实服务器");
+    return matrixService.setupKeyBackup();
+  }
+
+  async function restoreWithRecoveryKey(key: string): Promise<void> {
+    if (!isLive.value) throw new Error("演示模式无需恢复密钥，请连接真实服务器");
+    const result = await matrixService.reconnectWithRecoveryKey(key);
+    syncFromLive();
+    liveNotice.value = `已从密钥备份恢复 ${result.imported} 条会话密钥，历史消息正在重新解密`;
+  }
+
+  async function refreshSecurity(): Promise<void> {
+    if (!isLive.value) return;
+    await matrixService.refreshSecurity();
+  }
+
+  async function setDeviceTrust(deviceId: string, verified: boolean): Promise<void> {
+    await matrixService.setDeviceTrust(deviceId, verified);
+  }
+
+  async function crossSignDevice(deviceId: string): Promise<void> {
+    await matrixService.crossSignDevice(deviceId);
+  }
+
+  async function revokeDevice(deviceId: string): Promise<void> {
+    await matrixService.revokeDevice(deviceId);
+  }
+
+  async function startVerification(deviceId: string): Promise<void> {
+    await matrixService.requestVerification(deviceId);
+  }
+
+  async function acceptVerification(): Promise<void> {
+    await matrixService.acceptIncomingVerification();
+  }
+
+  async function confirmSas(): Promise<void> {
+    await matrixService.confirmSas();
+  }
+
+  function mismatchSas(): void {
+    matrixService.mismatchSas();
+  }
+
+  function cancelVerification(): void {
+    matrixService.cancelVerification();
+  }
+
+  /** 断开真实链路并回到演示模式（不会删除浏览器内的加密存储，但清除内存口令/4S 私钥）。 */
   function disconnectLive(): void {
     unsubscribe?.();
     unsubscribe = null;
     matrixService.stop();
+    matrixService.forgetSession();
     resetLiveStatus();
     clearLiveSession();
+    clearRecoveryKey();
     liveError.value = "";
     liveNotice.value = "";
     resetDemo();
@@ -357,8 +434,10 @@ export const useChatStore = defineStore("chat", () => {
     unsubscribe?.();
     unsubscribe = null;
     matrixService.stop();
+    matrixService.forgetSession();
     resetLiveStatus();
     clearLiveSession();
+    clearRecoveryKey();
     loggedIn.value = false;
   }
 
@@ -377,11 +456,15 @@ export const useChatStore = defineStore("chat", () => {
     loggedIn, displayName, contacts, conversations, messages, devices,
     activeRoomId, replyToId, searchQuery, settings,
     liveBusy, liveError, liveNotice, isLive, meId,
+    securityState, securityDevices, securityStatus, dataWarning,
     sortedConversations, unreadTotal, activeConversation, activeMessages,
     replyToMessage, searchResults,
     lastMessage, roomOf, contactOf, messageById, markRead, openRoom,
     sendText, sendAttachment, revoke, setReplyTo, addReaction,
     togglePin, toggleMute, verifyDevice, setSetting,
     loginDemo, connectLive, disconnectLive, logout, resetDemo, syncFromLive,
+    setupKeyBackup, restoreWithRecoveryKey, refreshSecurity, clearRecoveryKey,
+    setDeviceTrust, crossSignDevice, revokeDevice,
+    startVerification, acceptVerification, confirmSas, mismatchSas, cancelVerification,
   };
 });

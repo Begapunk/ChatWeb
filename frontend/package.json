@@ -12,7 +12,8 @@
     "smoke": "node e2e/demo-smoke.mjs",
     "prepare:wasm": "node scripts/prepare-wasm.mjs",
     "postinstall": "node scripts/prepare-wasm.mjs",
-    "e2e:live": "node e2e/live-e2ee.mjs"
+    "e2e:live": "node e2e/live-e2ee.mjs",
+    "e2e:m3": "node e2e/m3-security.mjs"
   },
   "dependencies": {
     "@matrix-org/matrix-sdk-crypto-wasm": "18.9.2",

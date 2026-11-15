@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useChatStore } from "../stores/chat";
 import { useUiStore } from "../stores/ui";
-import { matrixServiceStatus } from "../services/matrix";
+import { matrixServiceStatus, securityState } from "../services/matrix";
 import Avatar from "../components/Avatar.vue";
 
 type Tab = "general" | "notify" | "devices" | "security" | "profile" | "about";
@@ -24,6 +24,20 @@ const router = useRouter();
 const nameDraft = ref<string>(chat.displayName);
 const isLive = computed<boolean>(() => matrixServiceStatus.mode === "live");
 
+// ---- M3 安全中心状态 ----
+const recoveryInput = ref<string>("");
+const recoveryAccepted = ref<boolean>(false);
+const securityBusy = computed<boolean>(() => securityState.busy);
+const securityError = computed<string>(() => securityState.error);
+const securityNotice = computed<string>(() => securityState.notice || chat.liveNotice);
+
+// 切到安全/设备页时刷新一次真实状态；live 模式不读取演示假设备。
+watch([active, isLive], () => {
+  if (isLive.value && (active.value === "security" || active.value === "devices")) {
+    void chat.refreshSecurity().catch(() => {});
+  }
+}, { immediate: true });
+
 function saveName(): void {
   chat.loginDemo(nameDraft.value);
 }
@@ -36,6 +50,35 @@ function exitDemo(): void {
 function backToDemo(): void {
   chat.disconnectLive();
   void router.push("/");
+}
+
+async function doSetupBackup(): Promise<void> {
+  try {
+    await chat.setupKeyBackup();
+    recoveryAccepted.value = false;
+  } catch { /* 错误信息已在 securityState.error */ }
+}
+
+async function doRestore(): Promise<void> {
+  try {
+    await chat.restoreWithRecoveryKey(recoveryInput.value);
+    recoveryInput.value = "";
+  } catch { /* 同上 */ }
+}
+
+function acknowledgeRecoveryKey(): void {
+  recoveryAccepted.value = true;
+  chat.clearRecoveryKey();
+}
+
+async function act(fn: () => Promise<void>): Promise<void> {
+  try {
+    await fn();
+  } catch { /* 错误信息已在 securityState.error / chat.liveError */ }
+}
+
+function trustLabel(trust: string): string {
+  return trust === "verified" ? "已验证" : trust === "blocked" ? "已屏蔽" : "未验证";
 }
 </script>
 
@@ -108,26 +151,61 @@ function backToDemo(): void {
       <p class="panel__note">Web Push / Sygnal、iOS 主屏幕授权与用户手势流程属于 M5，当前未实现（demo 与 live 均如此）。</p>
     </div>
 
-    <!-- 设备 -->
+    <!-- 设备（M3：live 模式为真实 Matrix device keys） -->
     <div v-else-if="active === 'devices'" class="panel">
-      <div v-for="device in chat.devices" :key="device.id" class="device">
-        <div class="device__icon" aria-hidden="true"></div>
-        <div class="device__text">
-          <strong>{{ device.name }}<span v-if="device.current" class="device__cur">当前</span></strong>
-          <span class="ae-mono">{{ device.id }} · {{ device.lastSeen }}</span>
+      <template v-if="isLive">
+        <div v-if="chat.securityDevices.length === 0" class="device">
+          <div class="device__icon" aria-hidden="true"></div>
+          <div class="device__text"><strong>正在读取设备列表…</strong><span class="ae-mono">从 Synapse 拉取真实设备密钥</span></div>
         </div>
-        <button
-          v-if="!device.verified"
-          type="button"
-          class="device__verify"
-          @click="chat.verifyDevice(device.id)"
-        >验证</button>
-        <span v-else class="device__ok">已验证</span>
+        <div v-for="device in chat.securityDevices" :key="device.id" class="device">
+          <div class="device__icon" aria-hidden="true"></div>
+          <div class="device__text">
+            <strong>{{ device.name }}<span v-if="device.current" class="device__cur">当前</span></strong>
+            <span class="ae-mono">{{ device.id }} · {{ device.lastSeen }}</span>
+            <span v-if="device.fingerprint" class="ae-mono">指纹 {{ device.fingerprint.slice(0, 16) }}…</span>
+          </div>
+          <span class="device__badge" :class="`device__badge--${device.trust}`">{{ trustLabel(device.trust) }}</span>
+          <div v-if="!device.current" class="device__actions">
+            <button type="button" class="device__verify" :disabled="securityBusy" @click="act(() => chat.startVerification(device.id))">验证</button>
+            <button type="button" class="device__verify device__verify--danger" :disabled="securityBusy" @click="act(() => chat.revokeDevice(device.id))">撤销</button>
+          </div>
+        </div>
+        <p class="panel__note">以上为 Synapse 返回的真实设备列表与设备密钥验证状态，不是演示数据。「验证」发起 SAS 表情比对，两端一致后才标记已验证；「撤销」会通过 UIA 删除设备。</p>
+      </template>
+      <template v-else>
+        <div v-for="device in chat.devices" :key="device.id" class="device">
+          <div class="device__icon" aria-hidden="true"></div>
+          <div class="device__text">
+            <strong>{{ device.name }}<span v-if="device.current" class="device__cur">当前</span></strong>
+            <span class="ae-mono">{{ device.id }} · {{ device.lastSeen }}</span>
+          </div>
+          <button v-if="!device.verified" type="button" class="device__verify" @click="chat.verifyDevice(device.id)">验证</button>
+          <span v-else class="device__ok">已验证</span>
+        </div>
+        <p class="panel__note">演示模式的设备列表为界面模拟数据，不对应任何真实设备或密钥。真实设备列表请「连接真实服务器」。</p>
+      </template>
+
+      <!-- SAS 表情比对面板：两端必须人工确认一致，不匹配必须点「不一致」 -->
+      <div v-if="isLive && securityState.verification.active" class="callout sas" role="region" aria-label="设备验证">
+        <strong>设备验证 · 比对两端表情</strong>
+        <p>请与另一台设备核对下列表情是否完全一致。一致才点「一致，确认」；任何不一致都必须点「不一致」，验证会被取消且不会标记为已验证。</p>
+        <div v-if="securityState.verification.emoji.length" class="sas__emoji" aria-label="SAS 表情序列">
+          <span v-for="(e, i) in securityState.verification.emoji" :key="i" class="sas__item">{{ e }}</span>
+        </div>
+        <p v-else class="ae-mono">状态：{{ securityState.verification.phase }} · 等待对方接受…</p>
+        <p v-if="securityState.verification.decimal" class="ae-mono">数字备选：{{ securityState.verification.decimal.join(" ") }}</p>
+        <p v-if="securityState.verification.error" class="sas__error" role="alert">{{ securityState.verification.error }}</p>
+        <div class="sas__actions">
+          <button v-if="securityState.verification.phase === 'requested' && !securityState.verification.emoji.length" type="button" class="ae-btn ae-btn--primary" @click="act(() => chat.acceptVerification())">接受验证请求</button>
+          <button v-if="securityState.verification.emoji.length" type="button" class="ae-btn ae-btn--primary" @click="act(() => chat.confirmSas())">一致，确认</button>
+          <button v-if="securityState.verification.emoji.length" type="button" class="ae-btn" @click="chat.mismatchSas()">不一致</button>
+          <button type="button" class="ae-btn" @click="chat.cancelVerification()">取消</button>
+        </div>
       </div>
-      <p class="panel__note">上方设备列表为界面演示数据（live 模式同样如此，请勿视为真实设备清单）。真实设备列表与跨签名验证需接 Matrix device keys（M3）。「验证」按钮在 live 模式会明确提示未实现，不改变任何密钥状态。</p>
     </div>
 
-    <!-- 安全中心 -->
+    <!-- 安全中心（M3：真实 4S / 备份 / 恢复 / 跨签名状态） -->
     <div v-else-if="active === 'security'" class="panel">
       <div class="statuscard" :class="{ 'statuscard--live': isLive }">
         <span class="statuscard__dot"></span>
@@ -140,29 +218,77 @@ function backToDemo(): void {
           </p>
         </div>
       </div>
-      <div v-if="isLive" class="checklist">
-        <div class="checklist__item"><span class="done">已实现</span><div><strong>MatrixService</strong><p>登录 → device_id 重建 client → initRustCrypto → sync 生命周期</p></div></div>
-        <div class="checklist__item"><span class="todo">待实现</span><div><strong>密钥备份与恢复</strong><p>SSSS + 恢复密钥 / 口令，清除浏览器数据前强警告（M3）</p></div></div>
-        <div class="checklist__item"><span class="todo">待实现</span><div><strong>跨签名设备验证</strong><p>emoji / QR 验证、未验证设备提醒、设备撤销（M3）</p></div></div>
-        <div class="checklist__item"><span class="todo">待实现</span><div><strong>加密附件与通话</strong><p>EncryptedFile 附件、MatrixRTC / LiveKit 媒体 E2EE（M4 / M6）</p></div></div>
-      </div>
-      <div v-else class="checklist">
-        <div class="checklist__item"><span class="todo">演示模式不启用</span><div><strong>MatrixService / 真实 E2EE</strong><p>已在「连接真实服务器」模式实现并通过双浏览器验收；演示模式不联网、不产生密钥</p></div></div>
-        <div class="checklist__item"><span class="todo">待实现（M3）</span><div><strong>密钥备份与恢复</strong><p>SSSS + 恢复密钥 / 口令，清除浏览器数据前强警告</p></div></div>
-        <div class="checklist__item"><span class="todo">待实现（M3）</span><div><strong>跨签名设备验证</strong><p>emoji / QR 验证、未验证设备提醒、设备撤销</p></div></div>
-        <div class="checklist__item"><span class="todo">待实现（M4 / M6）</span><div><strong>加密附件与通话</strong><p>EncryptedFile 附件、MatrixRTC / LiveKit 媒体 E2EE</p></div></div>
-      </div>
-      <div v-if="isLive" class="callout">
-        <strong>真实链路的边界</strong>
-        <p>当前已启用设备端 Megolm 加密，但 M3 的密钥备份/恢复、跨签名验证与 M4 的加密附件
-          尚未实现。清除浏览器数据会丢失本设备的解密密钥，请先完成 M3 再依赖历史消息。</p>
-      </div>
-      <div v-else class="callout">
-        <strong>演示模式不加密</strong>
-        <p>真实链路（live 模式）已实现并通过双浏览器 E2EE 安全门禁，但<strong>当前处于演示模式</strong>：
-          不连接服务器、不产生密钥、消息只存内存，界面里的「已验证设备」「加密」字样均为布局占位。
-          请勿用演示模式进行任何真实私密对话；需要加密请从 /login 选择「连接真实服务器」。</p>
-      </div>
+
+      <template v-if="isLive">
+        <div class="checklist">
+          <div class="checklist__item">
+            <span :class="chat.securityStatus?.crossSigningReady ? 'done' : 'todo'">{{ chat.securityStatus?.crossSigningReady ? "已就绪" : "未就绪" }}</span>
+            <div><strong>跨签名</strong><p>标识本账号的所有设备，恢复后可自签新设备</p></div>
+          </div>
+          <div class="checklist__item">
+            <span :class="chat.securityStatus?.secretStorageReady ? 'done' : 'todo'">{{ chat.securityStatus?.secretStorageReady ? "已就绪" : "未就绪" }}</span>
+            <div><strong>安全存储（4S / SSSS）</strong><p>服务器端加密保存跨签名私钥与密钥备份解密密钥</p></div>
+          </div>
+          <div class="checklist__item">
+            <span :class="chat.securityStatus?.backupActive ? 'done' : 'todo'">{{ chat.securityStatus?.backupActive ? "备份中" : "未备份" }}</span>
+            <div><strong>密钥备份</strong><p>版本 {{ chat.securityStatus?.backupVersion ?? "无" }} · 会话密钥 {{ chat.securityStatus?.backupKeyCount ?? "未知" }} 条</p></div>
+          </div>
+          <div v-if="chat.securityStatus?.restoredThisSession" class="checklist__item">
+            <span class="done">已恢复</span>
+            <div><strong>本次会话恢复</strong><p>已从备份导入 {{ chat.securityStatus?.restoredKeys }} 条会话密钥</p></div>
+          </div>
+          <div class="checklist__item"><span class="todo">M4 / M6</span><div><strong>加密附件与通话</strong><p>EncryptedFile 附件、MatrixRTC 媒体 E2EE 仍未实现</p></div></div>
+        </div>
+
+        <!-- 一次性恢复密钥：仅显示一次，确认后立刻从内存清除 -->
+        <div v-if="securityState.recoveryKey && !recoveryAccepted" class="callout recovery" role="alert">
+          <strong>请立即离线抄写恢复密钥（只显示这一次）</strong>
+          <p>服务器不保存明文恢复密钥，任何人（包括管理员）都无法帮你找回。清除浏览器数据后，它是找回历史消息的唯一方式。</p>
+          <p class="recovery__key ae-mono" data-testid="recovery-key">{{ securityState.recoveryKey }}</p>
+          <div class="sas__actions">
+            <button type="button" class="ae-btn ae-btn--primary" @click="acknowledgeRecoveryKey">我已抄写并妥善保存</button>
+          </div>
+        </div>
+
+        <!-- 建立备份 / 导入恢复密钥 -->
+        <div v-if="!chat.securityStatus?.crossSigningReady" class="callout">
+          <strong>建立密钥备份</strong>
+          <p>将生成一把随机恢复密钥，并建立跨签名 + 4S + 服务器密钥备份。完成后请立即离线保存恢复密钥。</p>
+          <div class="sas__actions">
+            <button type="button" class="ae-btn ae-btn--primary" :disabled="securityBusy" @click="doSetupBackup">
+              {{ securityBusy ? "处理中…" : "生成恢复密钥并备份" }}
+            </button>
+          </div>
+        </div>
+        <div class="callout">
+          <strong>从恢复密钥恢复历史消息</strong>
+          <p>清除浏览器数据或更换设备后，输入此前抄写的恢复密钥即可从服务器备份找回 Megolm 会话密钥。密钥只在本机内存中使用，不会持久化或上传明文。</p>
+          <input v-model="recoveryInput" class="ae-input ae-mono" type="password" autocomplete="off" placeholder="粘贴恢复密钥" aria-label="恢复密钥" />
+          <div class="sas__actions">
+            <button type="button" class="ae-btn" :disabled="securityBusy || !recoveryInput.trim()" @click="doRestore">恢复历史消息</button>
+          </div>
+        </div>
+
+        <p v-if="securityError" class="sas__error" role="alert">{{ securityError }}</p>
+        <p v-if="securityNotice" class="panel__note" role="status">{{ securityNotice }}</p>
+
+        <div class="callout callout--warn">
+          <strong>清除浏览器数据前必读</strong>
+          <p>{{ chat.dataWarning || "正在读取安全状态…" }}</p>
+        </div>
+      </template>
+
+      <template v-else>
+        <div class="checklist">
+          <div class="checklist__item"><span class="todo">演示模式不启用</span><div><strong>MatrixService / 密钥备份</strong><p>真实链路已实现并通过双浏览器 E2EE 验收；演示模式不联网、不产生密钥</p></div></div>
+          <div class="checklist__item"><span class="todo">M4 / M6</span><div><strong>加密附件与通话</strong><p>EncryptedFile 附件、MatrixRTC 媒体 E2EE 未实现</p></div></div>
+        </div>
+        <div class="callout">
+          <strong>演示模式不加密</strong>
+          <p>真实链路（live 模式）已实现并通过双浏览器 E2EE 安全门禁，且 M3 密钥备份/恢复已可用；但<strong>当前处于演示模式</strong>：不连接服务器、不产生密钥、消息只存内存。
+            请勿用演示模式进行任何真实私密对话；需要加密请从 /login 选择「连接真实服务器」。</p>
+        </div>
+      </template>
     </div>
 
     <!-- 资料 -->
@@ -464,6 +590,88 @@ function backToDemo(): void {
   margin-top: 2px;
   color: var(--ae-text-subtle);
   font-size: 12px;
+}
+
+/* ---- M3 安全中心 ---- */
+.device__badge {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--ae-border-strong);
+  border-radius: 6px;
+  color: var(--ae-text-subtle);
+  font-size: 11px;
+  font-weight: 600;
+}
+.device__badge--verified {
+  border-color: color-mix(in srgb, var(--ae-success) 45%, transparent);
+  color: var(--ae-success);
+}
+.device__badge--blocked {
+  border-color: color-mix(in srgb, var(--ae-danger, #e06c75) 45%, transparent);
+  color: var(--ae-danger, #e06c75);
+}
+.device__actions {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+.device__verify--danger {
+  border-color: var(--ae-danger, #e06c75);
+  color: var(--ae-danger, #e06c75);
+}
+.device__verify:disabled {
+  opacity: 0.5;
+}
+.sas {
+  margin: 12px 16px;
+}
+.sas__emoji {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.sas__item {
+  min-width: 44px;
+  padding: 8px;
+  border: 1px solid var(--ae-border-strong);
+  border-radius: 10px;
+  background: var(--ae-surface);
+  text-align: center;
+  font-size: 24px;
+}
+.sas__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.sas__actions .ae-input {
+  width: 100%;
+}
+.sas__error {
+  margin: 10px 16px;
+  color: var(--ae-danger, #e06c75);
+  font-size: 12.5px;
+}
+.recovery {
+  margin: 12px 16px;
+}
+.recovery__key {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px dashed var(--ae-accent);
+  border-radius: 10px;
+  background: var(--ae-surface);
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.callout--warn {
+  border-left-color: var(--ae-warn);
+  background: color-mix(in srgb, var(--ae-warn) 10%, transparent);
 }
 
 .profile {

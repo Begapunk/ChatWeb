@@ -8,8 +8,13 @@
  * 运行：npm run smoke
  * 覆盖：AETHER_SMOKE_URL / AETHER_CHROME_PATH 环境变量
  *
- * 这不是 E2EE 验收测试。真实 MatrixService / Rust Crypto WASM / 双浏览器密文回归
- * 属于 M2 剩余工程，未通过前不得宣称加密通讯可用。
+ * 这不是 E2EE 验收测试。真实链路的验收分别在 `e2e/live-e2ee.mjs`（M2-R，
+ * 双浏览器密文证明）与 `e2e/m3-recovery.mjs`（M3，密钥备份/恢复）中完成。
+ * demo 模式始终不联网、不产生密钥；本套件负责守住这条边界。
+ *
+ * 2026-11-15 更新：M2-R / M3 完成后，demo 安全中心不再列出「MatrixService /
+ * 密钥备份 / 跨签名验证 待实现」这类已失效条目，故 S27 断言改为验证
+ * 「清单只列真实未完成项，且不谎称 M3 待实现」。
  */
 import { chromium } from "playwright-core";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -262,9 +267,18 @@ async function main() {
       return { ok: text.includes("端到端加密：未接线") && text.includes("Rust Crypto WASM"), detail: text.replace(/\n/g, " ") };
     });
 
-    await step("S27", "未实现清单如实列出 4 项", async () => {
-      const n = await page.locator(".checklist__item").count();
-      return { ok: n === 4, detail: `items=${n}` };
+    await step("S27", "清单只列真实未完成项，不谎称 M3 待实现", async () => {
+      const items = page.locator(".checklist__item");
+      const n = await items.count();
+      const text = (await page.locator(".checklist").innerText()).replace(/\n/g, " ");
+      // M2-R / M3 已完成：不得再出现「MatrixService 待实现」「密钥备份 待实现」
+      // 「跨签名设备验证 待实现」这类过时表述；M4/M6 未实现则必须如实保留。
+      const stale = /MatrixService[^。]*待实现|密钥备份[^。]*待实现|跨签名设备验证[^。]*待实现|双浏览器 E2EE 回归/.test(text);
+      const keepsBoundary = text.includes("演示模式不启用") && /M4|M6/.test(text);
+      return {
+        ok: n >= 2 && !stale && keepsBoundary,
+        detail: `items=${n} stale=${stale} boundary=${keepsBoundary}`,
+      };
     });
 
     await step("S28", "设备页可执行演示验证动作", async () => {
