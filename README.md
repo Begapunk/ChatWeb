@@ -1,6 +1,6 @@
 # Aether
 
-私人通讯 PWA 项目。当前开发分支 `feat/aether-serverless-p2p` 正在转向四人无服务器 P2P 聊天；默认首页是本地设备与真实 WebRTC 聊天流程。原 Matrix、Cloudflare 代码和线上测试站保留为历史资料。本分支尚未发布，也未在中国大陆不同运营商的真实手机上验证，不能宣称完成正式产品。当前实现、测试和限制见 [P2P 开发状态](docs/P2P-DEVELOPMENT.md)。
+私人通讯 PWA 项目。当前开发分支 `feat/aether-serverless-p2p` 正在转向四人无服务器 P2P 聊天；默认首页是本地设备与真实 WebRTC 聊天流程。原 Matrix、Cloudflare 代码和线上测试站保留为历史资料。P2P 测试网页已发布在 [GitHub Pages](https://begapunk.github.io/ChatWeb/)，但尚未在中国大陆不同运营商的真实手机上验证，不能宣称完成正式产品。当前实现、测试和限制见 [P2P 开发状态](docs/P2P-DEVELOPMENT.md)。
 
 下方内容是早期 Matrix/Cloudflare 阶段的历史记录，不代表当前 P2P 分支的发布状态。
 

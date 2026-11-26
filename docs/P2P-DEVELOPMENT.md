@@ -37,9 +37,9 @@
 
 默认 STUN 候选来源为 Google 公共 STUN 示例 `stun:stun.l.google.com:19302` 和 `stun:stun1.l.google.com:19302`。截至 2026-11-26，本项目**没有**在目标运营商网络完成验证，因此没有可靠性验证日期；诊断页会逐个报告本机当次检测结果，不会把地址标成“可靠”。用户可自行添加其他公共 STUN，默认两项属于同一服务提供方，不构成跨服务商冗余。
 
-## GitHub Pages 发布步骤（待用户另行授权）
+## GitHub Pages 发布
 
-目标仓库是 `Begapunk/ChatWeb`，当前为**私有仓库**。GitHub Free 的 Pages 发布要求仓库公开；不要为发布而擅自更改仓库可见性。若以后决定公开源码，可在仓库设置中把 Pages 来源设为 **GitHub Actions**，再在 Actions 页面手动运行 `Aether GitHub Pages`。工作流只在手动触发时执行，不会自动发布。构建使用 `/ChatWeb/` 子路径；成功后地址预计为 `https://begapunk.github.io/ChatWeb/`，实际地址应以 Actions 部署结果为准。私有仓库保持现状时，不应宣称已有 Pages 测试网址。
+目标仓库是公开的 `Begapunk/ChatWeb`。GitHub Pages 来源设为 **GitHub Actions**；网页地址为 `https://begapunk.github.io/ChatWeb/`。工作流只在手动触发时执行，不会自动发布。更新网页时，在 Actions 页面运行 `Aether GitHub Pages` 并选择 `feat/aether-serverless-p2p` 分支。构建使用 `/ChatWeb/` 子路径。GitHub 只托管静态程序文件，不提供聊天服务器。
 
 仓库和 Actions 只存放程序文件。不要把设备口令、保险箱备份、连接码、聊天消息、附件或诊断报告提交到 Git。
 
