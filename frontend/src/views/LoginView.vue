@@ -2,7 +2,7 @@
 import { computed, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useChatStore } from "../stores/chat";
-import { matrixServiceStatus } from "../services/matrix";
+import { DEFAULT_HOMESERVER, matrixServiceStatus } from "../services/matrix";
 
 const route = useRoute();
 const router = useRouter();
@@ -18,12 +18,15 @@ const name = ref<string>("");
 const password = ref<string>("");
 const inviteCode = ref<string>("");
 const recoveryKey = ref<string>("");
+const homeserver = ref(DEFAULT_HOMESERVER);
 const notice = ref<string>("");
+// 连通性验证阶段暂停旧 Matrix 登录；实现保留，待新后端与加密方案完成后再处理。
+const liveEnabled = false;
 
 const phaseLabel = computed<string>(() => {
   switch (matrixServiceStatus.phase) {
     case "wasm": return "正在加载 Rust Crypto WASM…";
-    case "auth": return "正在向 Synapse 登录…";
+    case "auth": return "正在向 Matrix 服务器登录…";
     case "crypto": return "正在初始化加密存储与设备密钥…";
     case "sync": return "正在完成首次同步…";
     case "ready": return "已连接";
@@ -41,8 +44,9 @@ function enterDemo(): void {
   void router.push("/");
 }
 
-/** 真实链路：邀请码注册（UIA 多阶段）或口令登录 → Rust Crypto → sync → 自动入房。 */
+/** 使用已有 Matrix 账号登录，初始化本机加密并同步房间。 */
 async function connectLive(): Promise<void> {
+  if (!liveEnabled) return;
   notice.value = "";
   if (!name.value.trim()) {
     notice.value = "请填写用户名。";
@@ -52,28 +56,18 @@ async function connectLive(): Promise<void> {
     notice.value = "请填写密码。";
     return;
   }
-  if (tab.value === "invite" && inviteCode.value.trim().length < 6) {
-    notice.value = "请填写有效的一次性邀请码。";
+  if (!homeserver.value.trim()) {
+    notice.value = "请填写现有 Matrix 服务器地址。";
     return;
   }
   try {
     const recovery = recoveryKey.value.trim() || undefined;
-    if (tab.value === "invite") {
-      await chat.connectLive({
-        kind: "register",
-        inviteCode: inviteCode.value,
-        username: name.value.trim(),
-        password: password.value,
-        recoveryKey: recovery,
-      });
-    } else {
-      await chat.connectLive({
-        kind: "login",
-        username: name.value.trim(),
-        password: password.value,
-        recoveryKey: recovery,
-      });
-    }
+    await chat.connectLive({
+      homeserver: homeserver.value,
+      username: name.value.trim(),
+      password: password.value,
+      recoveryKey: recovery,
+    });
     // 恢复密钥已交给 MatrixService（只在内存），立刻清空本组件的引用，避免残留在 DOM 状态里。
     recoveryKey.value = "";
     await router.push("/");
@@ -110,11 +104,12 @@ async function connectLive(): Promise<void> {
           role="tab"
           :aria-selected="mode === 'live'"
           :class="{ on: mode === 'live' }"
-          @click="mode = 'live'; notice = ''"
-        >连接真实服务器</button>
+          :disabled="!liveEnabled"
+          @click="mode = 'live'; tab = 'login'; notice = ''"
+        >真实通讯暂未开放</button>
       </div>
 
-      <div class="auth__tabs" role="tablist">
+      <div v-if="mode === 'demo'" class="auth__tabs" role="tablist">
         <button
           type="button"
           role="tab"
@@ -131,7 +126,7 @@ async function connectLive(): Promise<void> {
         >邀请码注册</button>
       </div>
 
-      <template v-if="tab === 'invite'">
+      <template v-if="mode === 'demo' && tab === 'invite'">
         <label class="auth__field">
           <span>一次性邀请码</span>
           <input v-model="inviteCode" class="ae-input ae-mono" placeholder="xxxxxxxx-xxxxxxxxxxxxxxxxxxxx" />
@@ -139,11 +134,11 @@ async function connectLive(): Promise<void> {
       </template>
 
       <label class="auth__field">
-        <span>{{ tab === 'invite' ? '设置用户名' : '用户名' }}</span>
+        <span>{{ mode === 'demo' ? (tab === 'invite' ? '设置用户名' : '用户名') : 'Matrix 用户名' }}</span>
         <input v-model="name" class="ae-input" placeholder="你的用户名" autocomplete="username" />
       </label>
       <label class="auth__field">
-        <span>{{ tab === 'invite' ? '设置密码' : '密码' }}</span>
+        <span>{{ mode === 'demo' && tab === 'invite' ? '设置密码' : '密码' }}</span>
         <input v-model="password" class="ae-input" type="password" placeholder="••••••••" autocomplete="current-password" />
       </label>
 
@@ -161,8 +156,19 @@ async function connectLive(): Promise<void> {
       <label class="auth__field">
         <span>服务器</span>
         <input
+          v-if="mode === 'live'"
+          v-model="homeserver"
           class="ae-input"
-          :value="mode === 'live' ? '同源 /_matrix · /invite-api（Caddy）' : 'https://aether.local'"
+          type="url"
+          inputmode="url"
+          autocomplete="url"
+          :placeholder="DEFAULT_HOMESERVER"
+          aria-label="Matrix 服务器"
+        />
+        <input
+          v-else
+          class="ae-input"
+          value="本机演示数据（不联网）"
           readonly
           aria-readonly="true"
         />
@@ -188,12 +194,11 @@ async function connectLive(): Promise<void> {
       >{{ chat.liveBusy ? '连接中…' : '连接真实服务器' }}</button>
 
       <p v-if="mode === 'demo'" class="auth__hint">
-        演示模式：不会连接服务器、不校验凭据、不创建账号。表单仅用于展示交互与布局。
+        演示模式：不会连接服务器、不校验凭据、不创建账号。表单仅用于展示交互与布局。真实通讯暂未开放。
+        <RouterLink to="/network-test">测试当前网络连通性</RouterLink>
       </p>
       <p v-else class="auth__hint">
-        真实模式：经同源 Caddy 访问邀请服务与 Synapse，注册使用一次性邀请码换取的短时效令牌；
-        登录后在设备端初始化 Rust Crypto WASM，消息由 Megolm 端到端加密。
-        密码仅用于本次登录与派生加密存储密钥，不会持久化或上传。
+        旧 Matrix 登录已暂停。当前只进行 Cloudflare 网络连通性验证，请勿输入真实账号或私人消息。
       </p>
     </div>
   </section>

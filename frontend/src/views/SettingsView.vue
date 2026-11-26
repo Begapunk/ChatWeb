@@ -183,7 +183,7 @@ function trustLabel(trust: string): string {
           <button v-if="!device.verified" type="button" class="device__verify" @click="chat.verifyDevice(device.id)">验证</button>
           <span v-else class="device__ok">已验证</span>
         </div>
-        <p class="panel__note">演示模式的设备列表为界面模拟数据，不对应任何真实设备或密钥。真实设备列表请「连接真实服务器」。</p>
+        <p class="panel__note">演示模式的设备列表为界面模拟数据，不对应任何真实设备或密钥。真实通讯暂未开放。</p>
       </template>
 
       <!-- SAS 表情比对面板：两端必须人工确认一致，不匹配必须点「不一致」 -->
@@ -237,7 +237,7 @@ function trustLabel(trust: string): string {
             <span class="done">已恢复</span>
             <div><strong>本次会话恢复</strong><p>已从备份导入 {{ chat.securityStatus?.restoredKeys }} 条会话密钥</p></div>
           </div>
-          <div class="checklist__item"><span class="todo">M4 / M6</span><div><strong>加密附件与通话</strong><p>EncryptedFile 附件、MatrixRTC 媒体 E2EE 仍未实现</p></div></div>
+          <div class="checklist__item"><span class="todo">待实测 / M6</span><div><strong>加密附件与通话</strong><p>EncryptedFile 附件已接线但真实门禁待执行；MatrixRTC 媒体 E2EE 未实现</p></div></div>
         </div>
 
         <!-- 一次性恢复密钥：仅显示一次，确认后立刻从内存清除 -->
@@ -281,12 +281,12 @@ function trustLabel(trust: string): string {
       <template v-else>
         <div class="checklist">
           <div class="checklist__item"><span class="todo">演示模式不启用</span><div><strong>MatrixService / 密钥备份</strong><p>真实链路已实现并通过双浏览器 E2EE 验收；演示模式不联网、不产生密钥</p></div></div>
-          <div class="checklist__item"><span class="todo">M4 / M6</span><div><strong>加密附件与通话</strong><p>EncryptedFile 附件、MatrixRTC 媒体 E2EE 未实现</p></div></div>
+          <div class="checklist__item"><span class="todo">待实测 / M6</span><div><strong>加密附件与通话</strong><p>live 模式附件已接线但真实门禁待执行；MatrixRTC 媒体 E2EE 未实现</p></div></div>
         </div>
         <div class="callout">
           <strong>演示模式不加密</strong>
-          <p>真实链路（live 模式）已实现并通过双浏览器 E2EE 安全门禁，且 M3 密钥备份/恢复已可用；但<strong>当前处于演示模式</strong>：不连接服务器、不产生密钥、消息只存内存。
-            请勿用演示模式进行任何真实私密对话；需要加密请从 /login 选择「连接真实服务器」。</p>
+          <p>真实链路（live 模式）文本 E2EE 已通过双浏览器门禁；M3 密钥恢复与 M4 附件仍需真实门禁确认。但<strong>当前处于演示模式</strong>：不连接服务器、不产生密钥、消息只存内存。
+            请勿用演示模式进行任何真实私密对话；真实通讯在网络连通性验证期间暂停。可前往「网络测试」验证访问情况。</p>
         </div>
       </template>
     </div>
@@ -311,10 +311,10 @@ function trustLabel(trust: string): string {
     <!-- 关于 -->
     <div v-else class="panel">
       <div class="about__brand"><span class="about__mark"></span><strong>Aether</strong><span class="ae-mono">0.5.0</span></div>
-      <p class="about__desc">私人端到端加密通讯 PWA · M2 真实链路 + 演示模式</p>
+      <p class="about__desc">私人通讯 PWA · Cloudflare 连通性验证阶段 · 真实通讯暂未开放</p>
       <div class="about__facts">
         <div><span>前端</span><strong>Vue 3 · TypeScript 5.9.3 · Vite 8 · VitePWA</strong></div>
-        <div><span>后端</span><strong>{{ isLive ? "Synapse（同源 Caddy）" : "未连接（演示数据）" }}</strong></div>
+        <div><span>后端</span><strong>{{ isLive ? "用户指定的 Matrix homeserver" : "未连接（演示数据）" }}</strong></div>
         <div><span>加密</span><strong>{{ isLive ? (matrixServiceStatus.e2ee ? "Megolm / Rust Crypto WASM 已就绪" : "未就绪，见安全页") : "未接线，见「安全」页" }}</strong></div>
         <div><span>状态</span><strong>{{ isLive ? "真实 E2EE 会话" : "可体验交互，不可用于真实通讯" }}</strong></div>
       </div>
@@ -325,7 +325,7 @@ function trustLabel(trust: string): string {
         </template>
         <template v-else>
           <button type="button" class="ae-btn" @click="chat.resetDemo()">重置演示数据</button>
-          <button type="button" class="ae-btn" @click="exitDemo">连接真实服务器</button>
+          <button type="button" class="ae-btn" @click="exitDemo">返回登录页</button>
         </template>
       </div>
       <p class="panel__note">

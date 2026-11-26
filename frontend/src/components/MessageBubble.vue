@@ -19,6 +19,7 @@ const emit = defineEmits<{
   (e: "reply", id: string): void;
   (e: "revoke", id: string): void;
   (e: "react", id: string, emoji: string): void;
+  (e: "openAttachment", id: string): void;
 }>();
 
 const statusLabel = computed<string>(() => {
@@ -66,7 +67,7 @@ const quoteBody = computed<string>(() => {
 
           <div v-if="message.kind === 'text'" class="bubble__text">{{ message.body }}</div>
 
-          <div v-else-if="message.kind === 'image'" class="attach attach--image">
+          <button v-else-if="message.kind === 'image'" type="button" class="attach attach--image attach--button" @click="emit('openAttachment', message.id)">
             <div class="attach__preview" aria-hidden="true">
               <span class="attach__sun"></span>
               <span class="attach__horizon"></span>
@@ -75,23 +76,23 @@ const quoteBody = computed<string>(() => {
               <span class="attach__name">{{ message.attachment?.name }}</span>
               <span class="attach__size">{{ message.attachment?.size }}</span>
             </div>
-          </div>
+          </button>
 
-          <div v-else-if="message.kind === 'file'" class="attach attach--file">
+          <button v-else-if="message.kind === 'file'" type="button" class="attach attach--file attach--button" @click="emit('openAttachment', message.id)">
             <span class="attach__badge">文件</span>
             <div class="attach__fileinfo">
               <span class="attach__name">{{ message.attachment?.name }}</span>
               <span class="attach__size">{{ message.attachment?.size }}</span>
             </div>
-          </div>
+          </button>
 
-          <div v-else class="attach attach--voice">
+          <button v-else type="button" class="attach attach--voice attach--button" @click="emit('openAttachment', message.id)">
             <span class="attach__play" aria-hidden="true"></span>
             <span class="attach__wave" aria-hidden="true">
               <i v-for="n in 18" :key="n" :style="{ height: `${6 + ((n * 7) % 15)}px` }"></i>
             </span>
             <span class="attach__size">{{ message.durationSec }}s</span>
-          </div>
+          </button>
         </template>
       </div>
 
@@ -206,6 +207,15 @@ const quoteBody = computed<string>(() => {
 
 .attach {
   min-width: min(230px, 60vw);
+}
+
+.attach--button {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
 }
 
 .attach__preview {

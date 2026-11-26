@@ -98,7 +98,11 @@ watch(roomId, (id) => {
 });
 watch(() => chat.activeMessages.length, () => { void scrollToBottom(); });
 
-function onAttach(kind: "image" | "file"): void {
+function onAttach(kind: "image" | "file", file?: File): void {
+  if (file) {
+    chat.sendAttachment(kind, file);
+    return;
+  }
   const isImage = kind === "image";
   chat.sendAttachment(kind, {
     name: isImage ? "示例图片.jpg" : "示例文档.pdf",
@@ -108,7 +112,48 @@ function onAttach(kind: "image" | "file"): void {
 }
 
 function onVoice(): void {
-  chat.sendAttachment("voice", { name: "语音消息", size: "12s", mime: "audio/ogg" }, 12);
+  if (!isLive.value) {
+    chat.sendAttachment("voice", { name: "语音消息", size: "12s", mime: "audio/ogg" }, 12);
+    return;
+  }
+  void recordVoice();
+}
+
+let recorder: MediaRecorder | null = null;
+let recordingStarted = 0;
+let recordingStream: MediaStream | null = null;
+
+async function recordVoice(): Promise<void> {
+  if (recorder?.state === "recording") {
+    recorder.stop();
+    return;
+  }
+  try {
+    recordingStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const chunks: Blob[] = [];
+    recorder = new MediaRecorder(recordingStream);
+    recordingStarted = Date.now();
+    recorder.ondataavailable = (event) => {
+      if (event.data.size) chunks.push(event.data);
+    };
+    recorder.onstop = () => {
+      const duration = Math.max(1, Math.round((Date.now() - recordingStarted) / 1000));
+      const mime = recorder?.mimeType || "audio/webm";
+      const extension = mime.includes("ogg") ? "ogg" : mime.includes("mp4") ? "m4a" : "webm";
+      const file = new File(chunks, `voice-${Date.now()}.${extension}`, { type: mime });
+      recordingStream?.getTracks().forEach((track) => track.stop());
+      recordingStream = null;
+      recorder = null;
+      chat.sendAttachment("voice", file, duration);
+    };
+    recorder.start();
+    chat.liveNotice = "正在录音，再次点击“语音”结束（最长 60 秒）";
+    window.setTimeout(() => {
+      if (recorder?.state === "recording") recorder.stop();
+    }, 60_000);
+  } catch (err) {
+    chat.liveError = err instanceof Error ? `无法录音：${err.message}` : "无法访问麦克风";
+  }
 }
 
 function onReact(id: string, emoji: string): void {
@@ -172,6 +217,7 @@ function onReact(id: string, emoji: string): void {
           @reply="chat.setReplyTo"
           @revoke="chat.revoke"
           @react="onReact"
+          @open-attachment="chat.openAttachment"
         />
       </div>
     </div>

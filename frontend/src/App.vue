@@ -14,6 +14,7 @@ const chat = useChatStore();
 // 登录页与聊天页自带完整画面：不显示全局顶栏与底部导航。
 const hideChrome = computed<boolean>(() => route.name === "login" || route.name === "chat");
 const isChat = computed<boolean>(() => route.name === "chat");
+const isP2P = computed<boolean>(() => route.name === "p2p");
 const activeTab = computed<string>(() => {
   if (route.name === "search") return "search";
   if (route.name === "settings") return "settings";
@@ -34,7 +35,8 @@ function goTab(name: "conversations" | "search" | "settings"): void {
       </div>
       <div class="topbar__actions">
         <span v-if="!ui.online" class="net" role="status">离线</span>
-        <DemoBadge />
+        <DemoBadge v-if="!isP2P" />
+        <RouterLink class="network-link" to="/network-test">网络诊断</RouterLink>
         <button
           class="theme-toggle"
           type="button"
@@ -50,7 +52,7 @@ function goTab(name: "conversations" | "search" | "settings"): void {
       <RouterView />
     </main>
 
-    <nav v-if="!hideChrome" class="tabbar" aria-label="主导航">
+    <nav v-if="!hideChrome && !isP2P" class="tabbar" aria-label="主导航">
       <button
         class="tabbar__item"
         :class="{ 'tabbar__item--active': activeTab === 'chats' }"
@@ -174,6 +176,13 @@ function goTab(name: "conversations" | "search" | "settings"): void {
   color: var(--ae-text-muted);
   font-size: 12px;
   font-weight: 600;
+}
+
+.network-link {
+  color: var(--ae-accent);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .theme-toggle:hover {

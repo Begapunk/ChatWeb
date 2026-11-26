@@ -18,7 +18,7 @@ router.beforeEach((to) => {
   liveSessionChecked = true;
   if (hadLiveSession() && !matrixServiceStatus.connected) {
     clearLiveSession();
-    if (to.name !== "login") {
+    if (to.name !== "login" && to.name !== "p2p" && to.name !== "network-test") {
       return { name: "login", query: { ...to.query, reason: "session-expired" } };
     }
   }

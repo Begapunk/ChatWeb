@@ -11,13 +11,30 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "send", text: string): void;
-  (e: "attach", kind: "image" | "file"): void;
+  (e: "attach", kind: "image" | "file", file?: File): void;
   (e: "voice"): void;
   (e: "cancelReply"): void;
 }>();
 
 const draft = ref<string>("");
 const isLive = computed<boolean>(() => matrixServiceStatus.mode === "live");
+const imageInput = ref<HTMLInputElement | null>(null);
+const fileInput = ref<HTMLInputElement | null>(null);
+
+function choose(kind: "image" | "file"): void {
+  if (!isLive.value) {
+    emit("attach", kind);
+    return;
+  }
+  (kind === "image" ? imageInput.value : fileInput.value)?.click();
+}
+
+function selected(kind: "image" | "file", event: Event): void {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (file) emit("attach", kind, file);
+  input.value = "";
+}
 
 function submit(): void {
   const text = draft.value.trim();
@@ -48,9 +65,11 @@ function onKeydown(event: KeyboardEvent): void {
 
     <div class="composer__row">
       <div class="composer__tools">
-        <button type="button" @click="emit('attach', 'image')">图片</button>
-        <button type="button" @click="emit('attach', 'file')">文件</button>
+        <button type="button" @click="choose('image')">图片</button>
+        <button type="button" @click="choose('file')">文件</button>
         <button type="button" @click="emit('voice')">语音</button>
+        <input ref="imageInput" class="composer__file" type="file" accept="image/*" @change="selected('image', $event)" />
+        <input ref="fileInput" class="composer__file" type="file" @change="selected('file', $event)" />
       </div>
       <textarea
         v-model="draft"
@@ -137,6 +156,10 @@ function onKeydown(event: KeyboardEvent): void {
   display: flex;
   gap: 3px;
   flex: none;
+}
+
+.composer__file {
+  display: none;
 }
 
 .composer__tools button {

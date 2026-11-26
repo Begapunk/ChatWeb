@@ -6,29 +6,41 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "build:pages": "npm run build && node scripts/pages-fallback.mjs",
     "typecheck": "vue-tsc --noEmit",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:connectivity": "node --test worker/index.test.mjs",
     "smoke": "node e2e/demo-smoke.mjs",
+    "smoke:connectivity": "node e2e/connectivity-smoke.mjs",
+    "start:local": "node ../scripts/start-local.mjs",
     "prepare:wasm": "node scripts/prepare-wasm.mjs",
     "postinstall": "node scripts/prepare-wasm.mjs",
-    "e2e:live": "node e2e/live-e2ee.mjs",
-    "e2e:m3": "node e2e/m3-security.mjs"
+    "e2e:legacy-docker": "node e2e/live-e2ee.mjs",
+    "e2e:m3:legacy-docker": "node e2e/m3-security.mjs"
   },
   "dependencies": {
     "@matrix-org/matrix-sdk-crypto-wasm": "18.9.2",
+    "@types/qrcode": "1.5.6",
+    "idb": "8.0.4",
+    "jsqr": "1.4.0",
+    "libsodium-wrappers": "0.8.4",
+    "libsodium-wrappers-sumo": "0.8.4",
     "matrix-js-sdk": "45.1.0",
     "pinia": "4.1.0",
+    "qrcode": "1.5.4",
     "vue": "3.5.45",
     "vue-router": "5.5.1"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "6.0.11",
+    "fake-indexeddb": "6.2.8",
     "playwright-core": "1.65.1",
     "typescript": "5.9.3",
     "vite": "8.3.8",
     "vite-plugin-pwa": "2.0.0",
     "vitest": "5.1.0",
-    "vue-tsc": "3.3.14"
+    "vue-tsc": "3.3.14",
+    "wrangler": "4.168.0"
   }
 }

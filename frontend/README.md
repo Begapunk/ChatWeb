@@ -1,5 +1,19 @@
 # Aether 前端（Vue 3 PWA）
 
+> 当前 `feat/aether-serverless-p2p` 分支默认进入本地 P2P 页面。运行 `npm ci`、`npm run dev` 后在浏览器中完成设备创建和配对。GitHub Pages 使用 `VITE_BASE_PATH=/<仓库名>/` 与 `npm run build:pages`，详见 [P2P 开发状态](../docs/P2P-DEVELOPMENT.md)。以下 Matrix/Cloudflare 说明均为历史内容，不应作为当前 P2P 的测试结果。
+
+> **当前阶段（2026-11-25）**：仅验证 Cloudflare 同源 HTTP API 与 WebSocket 连通性。
+> 真实 Matrix 登录入口已暂停，旧代码保留；发布步骤见
+> [`docs/CLOUDFLARE-CONNECTIVITY.md`](../docs/CLOUDFLARE-CONNECTIVITY.md)。
+> 以下 2026-11-23 免安装 Matrix 方案为历史资料。
+
+> **旧免安装方案（2026-11-23）**：双击项目根目录 `start-aether.cmd`，或执行
+> `node scripts/start-local.mjs`。启动器只使用电脑已有 Node.js 与当前 `node_modules`，
+> 不执行依赖下载。真实模式由用户填写现有 HTTPS Matrix homeserver 和账号，浏览器直接
+> 连接标准 Client API；本机不再依赖 Docker、Caddy、Synapse、PostgreSQL 或邀请服务。
+> 详细边界见 `docs/NO-INSTALL.md`。本文后续涉及本地 M1 栈、邀请码和 Docker 的段落均为
+> 历史验收记录，不是现行启动步骤。
+
 > **状态（2026-11-15）：M2 真实加密链路已通过双浏览器 E2EE 安全阻断门禁；M3 代码已实现但安全门禁未执行。**
 > `npm run e2e:live` **32/32 ×3 连续通过**（M2-R）、单元测试 **34/34**、演示模式回归 **36/36**、
 > `typecheck` / `build` 均通过。服务器侧实证本次新事件只有 `m.room.encrypted`（Megolm 密文）。
@@ -190,12 +204,12 @@ M1-R1 起**注册人数不设上限**，一次性邀请码是唯一准入控制�
 | 里程碑 | 内容 |
 |---|---|
 | M3 | 代码已实现（4S 恢复密钥 / 跨签名 / 真实设备列表与撤销 / SAS 比对），⛔ **真实安全门禁 `npm run e2e:m3` 36 项未执行**（Docker 引擎阻断） |
-| M4 | `EncryptedFile` 加密图片/文件/语音、语音录制、与 Element 互操作 |
+| M4 | 代码与静态门禁已完成；真实双浏览器门禁、Element 互操作、大文件进度、iOS 真机待验证 |
 | M5/M6 | Web Push、iOS 真机 PWA 验证、MatrixRTC/LiveKit 通话媒体 E2EE |
 | M7 | 发布门禁、账号数监控（R2.6）、完整运维文档 |
 
-live 模式下点击附件 / 语音仍会明确提示「属于 M4 未实现」，**不会发送明文附件，
-也不插入假消息**；设备验证在 M3 已接线为真实 SAS 流程（不再提示未实现），但其安全性
+live 模式附件会在浏览器本地加密后上传，下载时先校验再解密；语音由用户点击后本机播放。
+真实安全结论仍以尚未执行的扩展 `e2e:live` 为准。设备验证在 M3 已接线为真实 SAS 流程，但其安全性
 **同样未经真实 E2E 门禁验证**。凭据只在内存 → 刷新必须重新连接服务器；
 要实现「刷新免重登」需先完成 M3 安全门禁再设计，当前不做。
 

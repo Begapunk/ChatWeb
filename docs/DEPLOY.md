@@ -1,6 +1,7 @@
-# Aether 部署指南（M1）
+# Aether 旧版自托管部署指南（非现行方案）
 
-> 状态：M1 生效（P0-9）。M7 补充实操细节与故障手册。
+> 2026-11-25 起的连通性验证部署步骤见 [`CLOUDFLARE-CONNECTIVITY.md`](CLOUDFLARE-CONNECTIVITY.md)。本文仅保留旧 Docker
+> 自托管服务端的历史与可选资料，不会被 `start-aether.cmd` 调用。
 
 ## 1. 前置条件
 

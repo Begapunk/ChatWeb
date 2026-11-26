@@ -21,6 +21,8 @@ export interface Attachment {
   name: string;
   size: string;
   mime: string;
+  /** Present only for Matrix v2 encrypted media. Never persist outside the decrypted event. */
+  encryptedFile?: import("./services/attachment-crypto").MatrixEncryptedFile;
 }
 
 export interface Message {

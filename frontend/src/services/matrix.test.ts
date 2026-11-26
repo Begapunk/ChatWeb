@@ -17,8 +17,27 @@ import {
   hadLiveSession,
   markLiveSession,
   matrixServiceStatus,
+  normalizeHomeserver,
   resetLiveStatus,
 } from "./matrix";
+
+describe("免安装 homeserver 地址门禁", () => {
+  it("接受 HTTPS 并规范化末尾斜杠", () => {
+    expect(normalizeHomeserver(" https://matrix.example.org/ ")).toBe("https://matrix.example.org");
+    expect(normalizeHomeserver("https://example.org/matrix/ ")).toBe("https://example.org/matrix");
+  });
+
+  it("仅允许 localhost 使用明文 HTTP", () => {
+    expect(normalizeHomeserver("http://127.0.0.1:8008")).toBe("http://127.0.0.1:8008");
+    expect(() => normalizeHomeserver("http://matrix.example.org")).toThrow("必须使用 HTTPS");
+  });
+
+  it("拒绝空值、嵌入凭据及查询参数", () => {
+    expect(() => normalizeHomeserver("")).toThrow("请填写");
+    expect(() => normalizeHomeserver("https://user:pass@example.org")).toThrow("不能包含");
+    expect(() => normalizeHomeserver("https://example.org/?token=secret")).toThrow("不能包含");
+  });
+});
 
 function makeStorage(): Storage & { dump(): Record<string, string> } {
   const map = new Map<string, string>();

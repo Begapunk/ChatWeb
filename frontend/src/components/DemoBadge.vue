@@ -34,7 +34,7 @@ const isLive = computed<boolean>(() => matrixServiceStatus.mode === "live");
         <strong>这是界面演示，不是真实加密通讯</strong>
         <p>{{ matrixServiceStatus.reason }}。消息只存在浏览器内存中，刷新即重置；
           没有服务器、没有密钥、没有端到端加密。</p>
-        <p>如需真实链路，请到「设置 → 关于」退出演示后，用邀请码连接真实服务器。</p>
+        <p>真实通讯暂未开放；当前可通过「网络测试」检查 Cloudflare 同源连接。</p>
       </template>
     </div>
   </div>

@@ -13,9 +13,8 @@
  *  - 发送前等待对端设备可见，否则首次消息可能永久 UTD（M0 F1）。
  *  - timeline 事件可能早于解密完成，须轮询复核（M0 F3）。
  *
- * 安全边界：baseUrl 恒为当前 origin 的相对路径 /_matrix/*，本地由 Vite proxy、
- * 生产由 Caddy 同源承载。前端永远不接触 /_synapse/admin 或邀请服务管理端点，
- * 不保存密码，token 只存在内存中（刷新需重新登录）。
+ * 免安装模式由用户填写现有 Matrix homeserver，浏览器直接连接其标准 Client API。
+ * 前端不接触任何 homeserver 管理端点，不保存密码，token 只存在内存中（刷新需重新登录）。
  */
 import * as sdk from "matrix-js-sdk";
 import { initAsync as initCryptoWasm } from "@matrix-org/matrix-sdk-crypto-wasm";
@@ -32,6 +31,11 @@ import {
 import { CryptoEvent } from "matrix-js-sdk/lib/crypto-api/CryptoEvent.js";
 import type { UIAuthCallback } from "matrix-js-sdk/lib/interactive-auth.js";
 import type { Attachment, Contact, Conversation, Message, MessageKind } from "../types";
+import {
+  decryptAttachmentBytes,
+  encryptAttachmentBytes,
+  type MatrixEncryptedFile,
+} from "./attachment-crypto";
 import {
   decodeUserRecoveryKey,
   mergeDeviceInfo,
@@ -142,16 +146,6 @@ export function hadLiveSession(): boolean {
   }
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<{ status: number; json: T }> {
-  const res = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const json = (await res.json().catch(() => ({}))) as T;
-  return { status: res.status, json };
-}
-
 interface RegisterResponse {
   user_id?: string;
   access_token?: string;
@@ -160,6 +154,29 @@ interface RegisterResponse {
   flows?: { stages: string[] }[];
   errcode?: string;
   error?: string;
+}
+
+export const DEFAULT_HOMESERVER = "https://matrix-client.matrix.org";
+const MATRIX_ORG_UPLOAD_LIMIT = 10_000_000;
+const APP_UPLOAD_LIMIT = 20 * 1024 * 1024;
+
+export function normalizeHomeserver(input: string): string {
+  const value = input.trim();
+  if (!value) throw new Error("请填写 Matrix 服务器地址");
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("Matrix 服务器地址格式无效");
+  }
+  const local = url.hostname === "127.0.0.1" || url.hostname === "localhost";
+  if (url.protocol !== "https:" && !(local && url.protocol === "http:")) {
+    throw new Error("Matrix 服务器必须使用 HTTPS（localhost 可使用 HTTP）");
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new Error("服务器地址不能包含账号、密码、查询参数或片段");
+  }
+  return url.origin + url.pathname.replace(/\/$/, "");
 }
 
 function toCredentials(json: RegisterResponse): LiveCredentials {
@@ -218,6 +235,7 @@ export class MatrixService {
   private timelineSignature = "";
   /** 只在内存的会话凭据：供跨签名 UIA、设备撤销 UIA 与恢复密钥重连使用，绝不持久化。 */
   private sessionPassword = "";
+  private sessionHomeserver = "";
   private sessionCredentials: LiveCredentials | null = null;
   private sessionDisplayName = "";
   /** 4S 私钥（32 字节）：由恢复密钥解码或首次引导生成，只在内存，供 cryptoCallbacks 读取。 */
@@ -251,55 +269,11 @@ export class MatrixService {
     matrixServiceStatus.wasmLoaded = true;
   }
 
-  /** 一次性邀请码校验 → 换取短时效注册令牌。只走公共路径，不接触管理端点。 */
-  static async verifyInvite(code: string): Promise<string> {
-    const res = await postJson<{ registration_token?: string; error?: string }>(
-      "/invite-api/v1/verify",
-      { code: code.trim() },
-    );
-    if (res.status !== 200 || !res.json.registration_token) {
-      throw new Error(`邀请码校验失败（${res.status}${res.json.error ? ` ${res.json.error}` : ""}）`);
-    }
-    return res.json.registration_token;
-  }
-
-  /** Synapse UIA 注册：registration_requires_token 下 flow 为多阶段，
-   *  须逐阶段提交（m.login.registration_token 带 token，dummy 不带参数）。
-   *  与 M1 helpers.registerWithToken 同构，改由浏览器 fetch 实现。 */
-  static async register(username: string, password: string, token: string): Promise<LiveCredentials> {
-    const base = { username, password, inhibit_login: false };
-    const first = await postJson<RegisterResponse>("/_matrix/client/v3/register", base);
-    if (first.status === 200) return toCredentials(first.json);
-
-    const session = first.json.session;
-    const flow = (first.json.flows ?? []).find((f) =>
-      (f.stages ?? []).includes("m.login.registration_token"),
-    );
-    if (!session || !flow) {
-      throw new Error(`注册流程不可用（${first.status} ${first.json.errcode ?? ""}）`);
-    }
-    let auth: Record<string, string> = { session };
-    let last = first;
-    for (const stage of flow.stages) {
-      auth = {
-        ...auth,
-        type: stage,
-        ...(stage === "m.login.registration_token" ? { token } : {}),
-      };
-      last = await postJson<RegisterResponse>("/_matrix/client/v3/register", { ...base, auth });
-      if (last.status === 200) break;
-    }
-    if (last.status !== 200) {
-      throw new Error(`注册失败（${last.status} ${last.json.errcode ?? last.json.error ?? ""}）`);
-    }
-    return toCredentials(last.json);
-  }
-
   /** 用账号口令登录，返回凭据；随后由 connect() 重建带 deviceId 的加密客户端。 */
-  static async login(username: string, password: string): Promise<LiveCredentials> {
+  static async login(homeserver: string, username: string, password: string): Promise<LiveCredentials> {
     await MatrixService.loadWasm();
     matrixServiceStatus.phase = "auth";
-    const tmp = sdk.createClient({ baseUrl: window.location.origin });
+    const tmp = sdk.createClient({ baseUrl: normalizeHomeserver(homeserver) });
     const resp = await tmp.loginWithPassword(username, password);
     return toCredentials(resp as RegisterResponse);
   }
@@ -309,6 +283,7 @@ export class MatrixService {
    *  cryptoCallbacks 是 createClient 构造期选项，无法连接后追加（见 docs/M3-KICKOFF-CHECK.md §3）。 */
   async connect(
     creds: LiveCredentials,
+    homeserver: string,
     password: string,
     displayName?: string,
     recoveryKey?: string,
@@ -319,6 +294,7 @@ export class MatrixService {
     matrixServiceStatus.phase = "crypto";
     matrixServiceStatus.error = "";
     this.sessionPassword = password;
+    this.sessionHomeserver = normalizeHomeserver(homeserver);
     this.sessionCredentials = creds;
     this.sessionDisplayName = displayName || shortName(creds.userId);
     this.restoredKeys = 0;
@@ -330,7 +306,7 @@ export class MatrixService {
     const prefix = `aether-live-${creds.userId.replace(/[^a-z0-9]/gi, "_")}`;
     const storageKey = await deriveStorageKey(creds.userId, password);
     const client = sdk.createClient({
-      baseUrl: window.location.origin,
+      baseUrl: normalizeHomeserver(homeserver),
       userId: creds.userId,
       deviceId: creds.deviceId,
       accessToken: creds.accessToken,
@@ -500,10 +476,14 @@ export class MatrixService {
   }
 
   async sendText(roomId: string, body: string, replyToId?: string): Promise<string> {
-    const client = this.requireClient();
     const content: Record<string, unknown> = { msgtype: sdk.MsgType.Text, body };
     if (replyToId) content["m.relates_to"] = { "m.in_reply_to": { event_id: replyToId } };
+    return this.sendRoomMessage(roomId, content);
+  }
 
+  /** Send a room message only after the Rust crypto layer is ready. Never falls back to plaintext. */
+  private async sendRoomMessage(roomId: string, content: Record<string, unknown>): Promise<string> {
+    const client = this.requireClient();
     // 首次发送前必须等加密层就绪（自动入房后的 sync 竞态）。
     // 若仍遇到可恢复的加密竞态，只做有界重试；任何失败都不得降级为明文发送。
     let lastError: unknown;
@@ -524,6 +504,66 @@ export class MatrixService {
       }
     }
     throw lastError instanceof Error ? lastError : new Error("发送失败：加密会话未就绪");
+  }
+
+  /** Encrypt bytes locally, upload ciphertext without a filename, then send the key metadata
+   * inside the Megolm-encrypted room event. */
+  async sendAttachment(
+    roomId: string,
+    file: File,
+    kind: Exclude<MessageKind, "text">,
+    durationSec?: number,
+  ): Promise<string> {
+    if (!file.size) throw new Error("不能发送空文件");
+    const isMatrixOrg = this.sessionHomeserver === DEFAULT_HOMESERVER;
+    if (file.size > (isMatrixOrg ? MATRIX_ORG_UPLOAD_LIMIT : APP_UPLOAD_LIMIT)) {
+      throw new Error(isMatrixOrg ? "附件超过 Matrix.org 免费版 10 MB 上限" : "附件超过应用的 20 MiB 上限");
+    }
+    await this.waitForEncryptionReady(roomId, 20_000);
+
+    const encrypted = await encryptAttachmentBytes(await file.arrayBuffer());
+    const upload = await this.requireClient().uploadContent(
+      new Blob([encrypted.ciphertext], { type: "application/octet-stream" }),
+      { type: "application/octet-stream", includeFilename: false },
+    );
+    if (!upload.content_uri?.startsWith("mxc://")) throw new Error("服务器未返回有效的媒体地址");
+    const descriptor: MatrixEncryptedFile = { ...encrypted.descriptor, url: upload.content_uri };
+    const msgtype = kind === "image" ? "m.image" : kind === "voice" ? "m.audio" : "m.file";
+    const content: Record<string, unknown> = {
+      msgtype,
+      body: file.name || (kind === "voice" ? "语音消息" : "附件"),
+      filename: file.name || undefined,
+      file: descriptor,
+      info: {
+        mimetype: file.type || "application/octet-stream",
+        size: file.size,
+        ...(durationSec ? { duration: Math.round(durationSec * 1000) } : {}),
+      },
+    };
+    return this.sendRoomMessage(roomId, content);
+  }
+
+  /** Download ciphertext through the authenticated Matrix media endpoint, verify SHA-256,
+   * and only then decrypt it locally. */
+  async downloadAttachment(message: Message): Promise<Blob> {
+    const encryptedFile = message.attachment?.encryptedFile;
+    if (!encryptedFile) {
+      throw new Error("该附件不是 Matrix EncryptedFile，已阻止不安全下载");
+    }
+    const client = this.requireClient();
+    const url = client.mxcUrlToHttp(encryptedFile.url, undefined, undefined, undefined, false, true, true);
+    if (!url) throw new Error("附件媒体地址无效");
+    const token = this.sessionCredentials?.accessToken;
+    if (!token) throw new Error("会话凭据已失效，请重新登录");
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      redirect: "follow",
+    });
+    if (!response.ok) throw new Error(`附件下载失败（${response.status}）`);
+    const decrypted = await decryptAttachmentBytes(await response.arrayBuffer(), encryptedFile);
+    return new Blob([decrypted], {
+      type: message.attachment?.mime || "application/octet-stream",
+    });
   }
 
   async revoke(roomId: string, eventId: string): Promise<void> {
@@ -603,10 +643,12 @@ export class MatrixService {
 
     let attachment: Attachment | undefined;
     if (kind !== "text") {
+      const encryptedFile = content.file as MatrixEncryptedFile | undefined;
       attachment = {
         name: String(content.filename ?? content.body ?? "附件"),
         size: humanSize(content.info?.size),
         mime: String(content.info?.mimetype ?? ""),
+        ...(encryptedFile?.v === "v2" && encryptedFile.url ? { encryptedFile } : {}),
       };
     }
     const replyTo = content["m.relates_to"]?.["m.in_reply_to"]?.event_id as string | undefined;
@@ -657,6 +699,7 @@ export class MatrixService {
 
   private clearSessionSecrets(): void {
     this.sessionPassword = "";
+    this.sessionHomeserver = "";
     this.sessionCredentials = null;
     this.sessionDisplayName = "";
     this.secretStorageKey = null;
@@ -752,9 +795,10 @@ export class MatrixService {
     securityState.busy = true;
     securityState.error = "";
     const password = this.sessionPassword;
+    const homeserver = this.sessionHomeserver;
     const displayName = this.sessionDisplayName;
     try {
-      await this.connect(creds, password, displayName, recoveryKey);
+      await this.connect(creds, homeserver, password, displayName, recoveryKey);
       return { total: this.restoredKeys, imported: this.restoredKeys };
     } catch (err) {
       securityState.error = err instanceof Error ? err.message : String(err);

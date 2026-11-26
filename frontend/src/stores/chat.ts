@@ -40,9 +40,12 @@ const meFallback: Contact = {
   id: ME_ID, name: "我", initials: "我", color: "#4fd1c5", online: true, verified: true,
 };
 
-export type LiveConnectOptions =
-  | { kind: "register"; inviteCode: string; username: string; password: string; recoveryKey?: string }
-  | { kind: "login"; username: string; password: string; recoveryKey?: string };
+export interface LiveConnectOptions {
+  homeserver: string;
+  username: string;
+  password: string;
+  recoveryKey?: string;
+}
 
 /**
  * 双数据源状态层：
@@ -231,11 +234,29 @@ export const useChatStore = defineStore("chat", () => {
     scheduleReply(roomId);
   }
 
-  function sendAttachment(kind: MessageKind, attachment: Attachment, durationSec?: number): void {
+  function sendAttachment(kind: MessageKind, input: Attachment | File, durationSec?: number): void {
     if (isLive.value) {
-      liveNotice.value = "真实链路的加密附件（EncryptedFile）属于 M4，当前未实现；请切换到演示模式查看占位效果。";
+      if (!(input instanceof File) || kind === "text") {
+        liveError.value = "请选择要加密发送的真实文件";
+        return;
+      }
+      liveError.value = "";
+      liveNotice.value = "正在本机加密并上传附件…";
+      void matrixService
+        .sendAttachment(activeRoomId.value, input, kind, durationSec)
+        .then(() => {
+          liveNotice.value = "附件已作为 Matrix EncryptedFile 发送；服务器仅收到密文";
+        })
+        .catch((err: unknown) => {
+          liveNotice.value = "";
+          liveError.value = err instanceof Error ? err.message : String(err);
+        });
       return;
     }
+    if (input instanceof File) {
+      input = { name: input.name, size: `${Math.ceil(input.size / 1024)} KB`, mime: input.type };
+    }
+    const attachment = input;
     const roomId = activeRoomId.value;
     if (!roomId) return;
     const msg: Message = {
@@ -245,6 +266,41 @@ export const useChatStore = defineStore("chat", () => {
     messages.value[roomId] = [...(messages.value[roomId] ?? []), msg];
     window.setTimeout(() => updateStatus(roomId, msg.id, "sent"), 280);
     window.setTimeout(() => updateStatus(roomId, msg.id, "read"), 1200);
+  }
+
+  async function openAttachment(msgId: string): Promise<void> {
+    const message = messageById(msgId);
+    if (!message?.attachment) return;
+    if (!isLive.value) {
+      liveNotice.value = "演示附件没有真实文件内容";
+      return;
+    }
+    liveError.value = "";
+    liveNotice.value = "正在下载、校验并解密附件…";
+    try {
+      const blob = await matrixService.downloadAttachment(message);
+      const url = URL.createObjectURL(blob);
+      if (message.kind === "voice") {
+        const audio = new Audio(url);
+        audio.addEventListener("ended", () => URL.revokeObjectURL(url), { once: true });
+        audio.addEventListener("error", () => URL.revokeObjectURL(url), { once: true });
+        await audio.play();
+        liveNotice.value = "语音完整性校验通过，正在本机播放";
+        return;
+      }
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = message.attachment.name || "attachment";
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      liveNotice.value = "附件完整性校验通过，已在本机解密";
+    } catch (err) {
+      liveNotice.value = "";
+      liveError.value = err instanceof Error ? err.message : String(err);
+    }
   }
 
   function revoke(msgId: string): void {
@@ -328,21 +384,20 @@ export const useChatStore = defineStore("chat", () => {
     loggedIn.value = true;
   }
 
-  /** 连接真实 Synapse：邀请码注册或口令登录 → Rust Crypto → sync → 自动入房。 */
+  /** 连接用户指定的 Matrix homeserver：口令登录 → Rust Crypto → sync。 */
   async function connectLive(options: LiveConnectOptions): Promise<void> {
     liveBusy.value = true;
     liveError.value = "";
     liveNotice.value = "";
     try {
-      let creds: LiveCredentials;
-      if (options.kind === "register") {
-        const token = await MatrixService.verifyInvite(options.inviteCode);
-        creds = await MatrixService.register(options.username, options.password, token);
-      } else {
-        creds = await MatrixService.login(options.username, options.password);
-      }
+      const creds: LiveCredentials = await MatrixService.login(
+        options.homeserver,
+        options.username,
+        options.password,
+      );
       const identity = await matrixService.connect(
         creds,
+        options.homeserver,
         options.password,
         options.username,
         options.recoveryKey,
@@ -460,7 +515,7 @@ export const useChatStore = defineStore("chat", () => {
     sortedConversations, unreadTotal, activeConversation, activeMessages,
     replyToMessage, searchResults,
     lastMessage, roomOf, contactOf, messageById, markRead, openRoom,
-    sendText, sendAttachment, revoke, setReplyTo, addReaction,
+    sendText, sendAttachment, openAttachment, revoke, setReplyTo, addReaction,
     togglePin, toggleMute, verifyDevice, setSetting,
     loginDemo, connectLive, disconnectLive, logout, resetDemo, syncFromLive,
     setupKeyBackup, restoreWithRecoveryKey, refreshSecurity, clearRecoveryKey,

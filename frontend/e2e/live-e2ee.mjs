@@ -155,6 +155,11 @@ async function main() {
     { name: `m2r_b_${suffix}`, pass: randomBytes(18).toString("base64url"), code: codeB, role: "B" },
   ];
   const SECRET = `Aether-M2R-E2EE-secret-${suffix}`;
+  const ATTACHMENT_NAME = `aether-m4-${suffix}.txt`;
+  const ATTACHMENT_PLAINTEXT = Buffer.from(
+    `Aether-M4-encrypted-attachment-${suffix}\n${randomBytes(64).toString("hex")}`,
+    "utf8",
+  );
 
   const browsers = [];
   const sessions = [];
@@ -292,6 +297,57 @@ async function main() {
     check("L15b", "密文事件的 content 不含 body 明文字段",
       freshEncrypted.every((e) => !("body" in (e.content ?? {}))));
 
+    // ---- M4 加密附件：本地加密后上传，描述符随 Megolm 事件发送 ----
+    const attachmentKnownIds = new Set(after.map((e) => e.event_id));
+    const uploadResponsePromise = a.page.waitForResponse(
+      (r) => r.request().method() === "POST" && /\/_matrix\/(?:media|client)\/.*\/upload/.test(new URL(r.url()).pathname),
+      { timeout: 60000 },
+    );
+    await a.page.locator('input[type="file"]:not([accept])').setInputFiles({
+      name: ATTACHMENT_NAME,
+      mimeType: "text/plain",
+      buffer: ATTACHMENT_PLAINTEXT,
+    });
+    const uploadResponse = await uploadResponsePromise;
+    const uploadJson = await uploadResponse.json();
+    check("L16-M4", "附件密文上传成功并返回 MXC URI",
+      uploadResponse.ok() && /^mxc:\/\//.test(uploadJson.content_uri ?? ""), String(uploadResponse.status()));
+
+    const attachmentButton = b.page.locator("button.attach", { hasText: ATTACHMENT_NAME });
+    await attachmentButton.waitFor({ timeout: 90000 });
+    check("L17-M4", "B 收到并解密附件消息描述符", await attachmentButton.count() === 1, ATTACHMENT_NAME);
+
+    const attachmentTimeline = await waitFor(async () => {
+      const chunk = await readServerTimeline();
+      if (!chunk) return null;
+      return chunk.some((e) => !attachmentKnownIds.has(e.event_id)) ? chunk : null;
+    }, 60000, "服务器侧出现附件消息事件");
+    const freshAttachmentEvents = attachmentTimeline.filter((e) => !attachmentKnownIds.has(e.event_id));
+    check("L18-M4", "附件描述符只存在于 m.room.encrypted 事件中",
+      freshAttachmentEvents.some((e) => e.type === "m.room.encrypted") &&
+        !freshAttachmentEvents.some((e) => e.type === "m.room.message"));
+    check("L19-M4", "服务器事件不含附件文件名或明文",
+      !JSON.stringify(freshAttachmentEvents).includes(ATTACHMENT_NAME) &&
+        !JSON.stringify(freshAttachmentEvents).includes(ATTACHMENT_PLAINTEXT.toString("utf8")));
+
+    const mxc = new URL(uploadJson.content_uri.replace("mxc://", "http://"));
+    const mediaPath = `/_matrix/client/v1/media/download/${encodeURIComponent(mxc.hostname)}${mxc.pathname}`;
+    const mediaResponse = await fetch(SYNAPSE_DIRECT + mediaPath, { headers: adminAuth });
+    const mediaBytes = Buffer.from(await mediaResponse.arrayBuffer());
+    check("L20-M4", "媒体仓库保存的是密文而非原文件",
+      mediaResponse.ok && !mediaBytes.equals(ATTACHMENT_PLAINTEXT) &&
+        !mediaBytes.includes(ATTACHMENT_PLAINTEXT), `wire=${mediaBytes.length} plain=${ATTACHMENT_PLAINTEXT.length}`);
+
+    const downloadPromise = b.page.waitForEvent("download", { timeout: 60000 });
+    await attachmentButton.click();
+    const download = await downloadPromise;
+    const downloadStream = await download.createReadStream();
+    const downloadedChunks = [];
+    for await (const chunk of downloadStream) downloadedChunks.push(chunk);
+    const downloaded = Buffer.concat(downloadedChunks);
+    check("L21-M4", "B 下载后逐字节还原原始附件", downloaded.equals(ATTACHMENT_PLAINTEXT),
+      `bytes=${downloaded.length}`);
+
     // ---- 运行期健康（刷新前采集，避免刷新产生的噪声混入）----
     // 协议预期内的 4xx（浏览器会记成 console error，但属于正常握手）：
     //  - 401 POST /_matrix/client/v3/register：UIA 逐阶段挑战，注册流程必需（M1 同构）；
@@ -307,28 +363,28 @@ async function main() {
     const all4xx = sessions.flatMap((s) => s.http4xx);
     const unexpected4xx = all4xx.filter((x) => !PROTOCOL_4XX.includes(x));
 
-    check("L16", "两个浏览器无未捕获异常", allErrors.length === 0, allErrors.slice(0, 2).join(" | "));
-    check("L16b", "浏览器 4xx 全部属于协议预期清单（无意外失败请求）",
+    check("L22", "两个浏览器无未捕获异常", allErrors.length === 0, allErrors.slice(0, 2).join(" | "));
+    check("L22b", "浏览器 4xx 全部属于协议预期清单（无意外失败请求）",
       unexpected4xx.length === 0, `total4xx=${all4xx.length} unexpected=${JSON.stringify(unexpected4xx.slice(0, 3))}`);
     const noise = /^Failed to load resource: the server responded with a status of (401|404)/;
     const realConsoleErrors = allConsole.filter((t) => !noise.test(t));
-    check("L17", "除协议预期 4xx 噪声外无 console error（含加密发送失败）",
+    check("L23", "除协议预期 4xx 噪声外无 console error（含加密发送失败）",
       realConsoleErrors.length === 0, realConsoleErrors.slice(0, 2).join(" | ").slice(0, 300));
-    check("L17b", "协议 4xx 噪声数量与白名单一一对应",
+    check("L23b", "协议 4xx 噪声数量与白名单一一对应",
       allConsole.filter((t) => noise.test(t)).length === all4xx.length,
       `noise=${allConsole.filter((t) => noise.test(t)).length} http4xx=${all4xx.length}`);
 
     // ---- 管理面不可由浏览器/公网路径访问 ----
     const adminProbe = await fetch(`${BASE}/invite-api/admin/v1/codes`, { method: "POST" });
-    check("L18", "浏览器同源路径无法访问邀请服务管理端点", adminProbe.status === 404, String(adminProbe.status));
+    check("L24", "浏览器同源路径无法访问邀请服务管理端点", adminProbe.status === 404, String(adminProbe.status));
 
     const directNoKey = await jsonRequest(INVITE_DIRECT, "POST", "/admin/v1/codes", { body: { ttl_hours: 1 } });
-    check("L18b", "管理端点直连无 X-Admin-Key 被拒", directNoKey.status === 401, String(directNoKey.status));
+    check("L24b", "管理端点直连无 X-Admin-Key 被拒", directNoKey.status === 401, String(directNoKey.status));
 
     const caddyAdmin = await caddyStatus("/admin/v1/codes", "POST");
-    check("L18c", "生产 Caddy 不路由邀请服务管理端点", caddyAdmin === 404, String(caddyAdmin));
+    check("L24c", "生产 Caddy 不路由邀请服务管理端点", caddyAdmin === 404, String(caddyAdmin));
     const caddySynapseAdmin = await caddyStatus("/_synapse/admin/v1/server_version");
-    check("L18d", "生产 Caddy 不路由 Synapse 管理 API", caddySynapseAdmin === 404, String(caddySynapseAdmin));
+    check("L24d", "生产 Caddy 不路由 Synapse 管理 API", caddySynapseAdmin === 404, String(caddySynapseAdmin));
 
     await a.page.screenshot({ path: path.join(OUT_DIR, "A-sender.png") });
     await b.page.screenshot({ path: path.join(OUT_DIR, "B-receiver.png") });
@@ -342,12 +398,12 @@ async function main() {
       { timeout: 20000 },
     );
     const expiredText = await b.page.locator(".auth__expired").innerText();
-    check("L19", "刷新后显式提示真实会话已结束、需重新连接",
+    check("L25", "刷新后显式提示真实会话已结束、需重新连接",
       expiredText.includes("真实会话已结束") && expiredText.includes("重新连接"), expiredText.slice(0, 70));
     const demoConvsVisible = await b.page.locator(".convs__list").count();
-    check("L20", "刷新后不静默展示演示假会话列表", demoConvsVisible === 0, `count=${demoConvsVisible}`);
+    check("L26", "刷新后不静默展示演示假会话列表", demoConvsVisible === 0, `count=${demoConvsVisible}`);
     const badgeText = await b.page.locator(".auth__tagline").innerText();
-    check("L20b", "刷新后回到登录页而非聊天页", badgeText.includes("私人端到端加密通讯"));
+    check("L26b", "刷新后回到登录页而非聊天页", badgeText.includes("私人端到端加密通讯"));
     await b.page.screenshot({ path: path.join(OUT_DIR, "B-after-reload.png") });
   } finally {
     for (const br of browsers) {

@@ -11,14 +11,17 @@ m0/.env.test
 m0/browser-run/
 m0/m0-chrome-profile-*/
 m0/results/t04-dom.html
+m0/results/*.log
 m1/reports/
 .tmp-gen/
+backups/
 
 # rendered synapse config (contains secrets; signing key & media live here too)
 infra/synapse/data/
 
 # build output
 frontend/dist/
+frontend/.wrangler/
 # Rust Crypto WASM 二进制：由 npm postinstall 从 lockfile 锁定的 node_modules 复制，不入库
 frontend/public/wasm/
 *.local

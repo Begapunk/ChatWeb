@@ -22,7 +22,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const BASE = process.env.AETHER_SMOKE_URL ?? "http://127.0.0.1:4173";
+const BASE = process.argv[2] ?? process.env.AETHER_SMOKE_URL ?? "http://127.0.0.1:4173";
 const CHROME =
   process.env.AETHER_CHROME_PATH ??
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
@@ -313,6 +313,25 @@ async function main() {
       await page.getByRole("button", { name: "进入演示" }).click();
       await page.locator(".convs h1").waitFor();
       return { ok: new URL(page.url()).pathname === "/", detail: page.url() };
+    });
+
+    await step("S31b", "连通性验证期间关闭旧 Matrix 登录入口", async () => {
+      await page.goto(`${BASE}/login`, { waitUntil: "load" });
+      const liveTab = page.getByRole("tab", { name: "真实通讯暂未开放" });
+      return {
+        ok: await liveTab.isDisabled() &&
+          await page.getByRole("link", { name: "在 Element 网页版注册" }).count() === 0 &&
+          await page.getByRole("link", { name: "测试当前网络连通性" }).count() === 1,
+      };
+    });
+
+    await step("S31c", "同源网络测试页面可从登录页打开", async () => {
+      const before = requests.length;
+      await page.getByRole("link", { name: "测试当前网络连通性" }).click();
+      await page.getByRole("heading", { name: "网络连通性测试" }).waitFor();
+      const newRequests = requests.slice(before);
+      const external = newRequests.filter((u) => !u.startsWith(new URL(BASE).origin));
+      return { ok: new URL(page.url()).pathname === "/network-test" && external.length === 0, detail: page.url() };
     });
 
     // ---- PWA 注册 ----

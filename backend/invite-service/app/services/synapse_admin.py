@@ -171,7 +171,7 @@ class MatrixAdminClient:
     # ---- users (quota calibration & polling; §10.3 verified) ----
 
     async def list_users(self) -> list[dict[str, Any]]:
-        """全量拉取非访客、非停用本地用户（≤4 人规模，单页足够；仍按 next_token 兜底分页）。"""
+        """全量拉取非访客、非停用本地用户，并按 next_token 完整分页。"""
         users: list[dict[str, Any]] = []
         from_token: str | None = None
         while True:

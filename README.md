@@ -1,7 +1,17 @@
 # Aether
 
-私人端到端加密通讯 PWA。基于 Matrix 协议（Synapse + matrix-js-sdk + Rust Crypto WASM），
-服务器只存储与转发密文，不持有解密聊天内容的密钥。
+私人通讯 PWA 项目。当前开发分支 `feat/aether-serverless-p2p` 正在转向四人无服务器 P2P 聊天；默认首页是本地设备与真实 WebRTC 聊天流程。原 Matrix、Cloudflare 代码和线上测试站保留为历史资料。本分支尚未发布，也未在中国大陆不同运营商的真实手机上验证，不能宣称完成正式产品。当前实现、测试和限制见 [P2P 开发状态](docs/P2P-DEVELOPMENT.md)。
+
+下方内容是早期 Matrix/Cloudflare 阶段的历史记录，不代表当前 P2P 分支的发布状态。
+
+## 免安装本地预览
+
+双击 `start-aether.cmd`，然后打开终端显示的 `http://127.0.0.1:4173`。
+脚本只执行现有依赖的本机构建，不运行 `npm install` / `npm ci`。本地预览保留演示模式，
+但没有 Cloudflare Worker，不能用来证明 `/api/health` 或 `/api/ws` 可达。
+
+旧免安装 Matrix 方案与 Synapse/PostgreSQL/Caddy/邀请服务代码保留为历史资料，
+见 [docs/NO-INSTALL.md](docs/NO-INSTALL.md)。
 
 > **产品变更 M1-R1（2026-11-14，已生效）**：注册人数**不设上限**。
 > 准入完全由管理员手动发放的一次性邀请码控制；`quota_counters` 仅作统计，
@@ -14,31 +24,24 @@
 - **M2 真实加密链路：已实现并通过安全阻断门禁** ✅
   - 双浏览器 E2EE 验收 `npm run e2e:live` **32/32，连续三次通过**；
     服务器侧实证本次事件只有 `m.room.encrypted`（Megolm 密文），不含明文
-  - 单元测试 **34/34**（含 M3 新增 13 项）、`typecheck` / `build` 通过、演示模式回归 **36/36**
+  - 当前单元测试 **40/40**、`typecheck` / `build` 通过、免安装启动路径浏览器烟测 **38/38**
   - 完整报告：[docs/M2-LIVE-REPORT.md](docs/M2-LIVE-REPORT.md)
-- **M3 密钥备份/恢复：代码已实现，真实安全门禁未执行（⛔ 发布阻断）**
+- **M3 密钥备份/恢复：代码已实现，需在用户选定的远程 homeserver 上重新验收**
   - 已实现 4S/SSSS 恢复密钥、服务器 key backup、跨签名、真实设备列表与撤销、SAS 验证、安全中心与登录页恢复入口
   - 静态门禁通过：`typecheck` 0 / 单测 **34/34** / `build` 0 / demo 回归 **36/36**；`e2e:m3` 36 项门禁脚本已编写但**尚未真实执行**
-  - 阻塞原因：本机 Docker Desktop Linux 引擎无法启动（残留 socket `EPERM` + engine 持续 503），Synapse 栈不可用
+  - 原本机 Docker 门禁已取消；旧结果不能自动代表任意第三方 homeserver
   - 权威说明：[docs/M3-REPORT.md](docs/M3-REPORT.md)；风险项 `docs/RISKS.md R5.4`
 - **演示模式仍保留**：无需 Docker 即可试用界面，但它**不联网、不加密**，
   与真实链路在 UI 上显式区分；请勿用于任何真实私密对话
 
-> **试用真实链路**（需 M1 本地栈运行 + 管理员发放的一次性邀请码）：
-> ```bash
-> cd frontend && npm ci && npm run build
-> npm run preview -- --host 127.0.0.1 --port 4173 --strictPort
-> # 浏览器打开 http://127.0.0.1:4173/login → 「连接真实服务器」→ 邀请码注册
-> ```
-> 只试用界面则在同一页面选「演示模式 / 进入演示」。
-> 安全门禁复现：`npm run e2e:live`（失败即 exit 1）。
-> 详见 [frontend/README.md](frontend/README.md)。
+> 真实模式不再创建本机账号：请填写服务商提供的 homeserver 地址和已有账号。
 
 > ⛔ **M3 不得宣称完成**：恢复链路的代码与静态测试已落地，但「清除浏览器数据 → 恢复 →
 > 历史密文重新解密」的**真实安全门禁尚未执行**，因此不得宣称密钥恢复/跨签名验证可用。
 > 在门禁通过前，**清除浏览器数据仍会丢失本设备解密密钥、历史消息无法解密**；
 > 凭据只在内存，刷新页面需重新连接服务器（UI 会明确提示，不会静默回退演示数据）。
-> M4 加密附件、M5 Web Push、M6 通话、M7 发布门禁**均未实现**。
+> M4 加密附件代码与静态门禁已完成，但需用两个远程 Matrix 测试账号重新执行真实门禁；
+> M5 Web Push、M6 通话与 M7 其余发布门禁仍未完成。
 > 当前版本**不可作为正式私密通讯工具发布**，见 [docs/M3-REPORT.md](docs/M3-REPORT.md)。
 
 | 文档 | 说明 |
@@ -76,7 +79,7 @@ m0/                     M0 技术验证工程（可复跑）
 m1/                     M1 集成测试工程（验收 A–J，Node + matrix-js-sdk）
 ```
 
-## 部署与测试
+## 旧版自托管部署与测试（历史，可忽略）
 
 ```bash
 cp .env.example .env         # 填入真实值（全部 __CHANGE_ME__）
@@ -126,7 +129,8 @@ node src/t06-browser-synapse.mjs # 双浏览器实例 E2EE
 - 清除浏览器数据前必须完成密钥备份，否则可能永久失去历史消息解密能力。
 - **真实链路（live 模式）已达成第 1 条**：双浏览器验收实证服务器只见 `m.room.encrypted`
   Megolm 密文、对端用自身密钥解密出明文，见 `docs/M2-LIVE-REPORT.md`。
-- **第 2/3/4 条仍是 M4/M6/M3 待实现**：加密附件、通话媒体 E2EE、密钥备份恢复均未完成。
+- **第 2 条已实现并通过单测，但真实双浏览器门禁尚未执行**；第 3/4 条（通话媒体 E2EE、
+  密钥备份恢复）仍未通过真实门禁。
   因此**清除浏览器数据仍会永久失去历史消息解密能力**，当前版本不可作为正式私密通讯工具发布。
 - **演示模式不满足任何一条运行时保证**：不产生密钥、不加密、不联网，仅用于验证界面与交互。
   两种模式在 UI 上显式区分；整页刷新导致真实会话失效时会强制回到登录页提示，不静默回退 demo。

@@ -1,13 +1,14 @@
 # Aether 架构设计（M0 基线版）
 
-> 状态：M0 技术验证阶段。本文档描述目标架构与已验证的技术事实，随里程碑演进更新。
-> 最后更新：2026-11-14
+> 2026-11-23：现行方案改为免安装客户端。旧自托管服务端图保留用于追溯。
 
 ## 1. 系统定位
 
-Aether 是一个**仅供 4 名固定成员**使用的私人端到端加密通讯 PWA。服务器（Synapse）只负责
-转发与存储**密文**，不持有能解密聊天内容的密钥。产品形态为安装到主屏幕的 Web App，
-优先适配 iPhone，深色极简科技风。
+Aether 现行形态是免安装 Matrix PWA 客户端：本机 Node.js 只提供静态文件，浏览器直接连接
+用户指定的现有 Matrix homeserver。消息与附件仍由 Rust Crypto WASM 在设备端执行
+Olm/Megolm/EncryptedFile 加解密；服务商能够看到账号、房间成员、时间和流量等元数据。
+本机不再负责账号注册、邀请服务、数据库或反向代理。下方服务端图是旧版自托管架构，
+不由现行 `start-aether.cmd` 启动；现行边界以 `docs/NO-INSTALL.md` 为准。
 
 ## 2. 组件与信任边界
 
@@ -59,17 +60,17 @@ Aether 是一个**仅供 4 名固定成员**使用的私人端到端加密通讯
    `ToDeviceKeyTransport`/`LivekitTransport`），M6 必须实测验证。
 4. 附件（图片/文件/语音）按 Matrix 规范 `EncryptedFile` 格式用 WebCrypto AES-256-CTR 加密后
    上传，解密密钥随 Megolm 加密的房间事件分发。**matrix-js-sdk 45.1.0 不提供高层附件加密
-   辅助函数**（已审计确认），M4 需按规范自行实现该格式（非自创算法）。
+   辅助函数**（已审计确认）；M4 已按规范实现，真实跨浏览器门禁仍待执行。
 
 ## 3. 用户与准入
 
-- 全系统最多 4 个正式账号（含管理员）。
+- 正式账号数量不设产品上限；准入只由管理员发放的一次性邀请码控制。
 - 注册唯一途径：一次性邀请码 → FastAPI 校验（哈希比对、过期、次数限制）→
   调用 Synapse 官方注册令牌 API（`POST /_synapse/admin/v1/registration_tokens/new`，M0 已实测）
   → 前端用令牌完成 `m.login.registration_token` 注册（M0 已实测）。
 - Synapse 配置：`enable_registration: true` + `registration_requires_token: true`、
   禁止访客、`federation_domain_whitelist: []` 关闭联邦、房间全部邀请制私有加密房间。
-- 注册成功后由邀请服务/管理员账号邀请进入固定四人群聊与相应私聊房间。
+- 注册成功后由邀请服务/管理员账号邀请进入固定加密群聊与相应私聊房间。
 
 ## 4. 前端架构（M2 起实施）
 
@@ -104,10 +105,10 @@ aether/
 | 里程碑 | 范围 | 关键验证 |
 |---|---|---|
 | M0 | 依赖锁定、API 审计、E2EE 可行性 | T01–T06（见 M0-VERIFICATION-REPORT.md） |
-| M1 | Synapse+PG+Caddy+邀请服务、4 人上限 | 邀请码生命周期、超额拒绝、联邦关闭 |
+| M1 | Synapse+PG+Caddy+邀请服务、无限账号准入 | 邀请码生命周期、并发一次性、联邦关闭 |
 | M2 | Vue PWA 登录/聊天/同步 | 双浏览器私聊群聊、历史与离线同步 |
 | M3 | 设备验证/跨签名/备份恢复/撤销 | 清数据后恢复、未验证设备提醒 |
 | M4 | 图片/文件/语音（加密附件） | 附件密文上传、跨设备解密、篡改检测 |
 | M5 | Web Push/iOS PWA | 权限拒绝路径、iOS 主屏幕通知 |
-| M6 | MatrixRTC/Element Call/LiveKit | 1v1 与 4 人通话媒体 E2EE 实测 |
+| M6 | MatrixRTC/Element Call/LiveKit | 1v1 与多人通话媒体 E2EE 实测 |
 | M7 | 安全审查/备份恢复/性能/文档 | 全量回归、发布门禁 |
