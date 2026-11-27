@@ -34,7 +34,7 @@ function goTab(name: "conversations" | "search" | "settings"): void {
         <span class="brand__name">Aether</span>
       </div>
       <div class="topbar__actions">
-        <span v-if="!ui.online" class="net" role="status">离线</span>
+        <span v-if="!isP2P && !ui.online" class="net" role="status">离线</span>
         <DemoBadge v-if="!isP2P" />
         <RouterLink class="network-link" to="/network-test">网络诊断</RouterLink>
         <button
@@ -49,7 +49,9 @@ function goTab(name: "conversations" | "search" | "settings"): void {
     </header>
 
     <main class="main" :class="{ 'main--full': isChat }">
-      <RouterView />
+      <RouterView v-slot="{ Component }">
+        <KeepAlive include="P2PView"><component :is="Component" /></KeepAlive>
+      </RouterView>
     </main>
 
     <nav v-if="!hideChrome && !isP2P" class="tabbar" aria-label="主导航">

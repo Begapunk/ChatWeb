@@ -1,4 +1,5 @@
-import type { PublicIdentity, VaultSession } from "./crypto";
+import { canonical, type PublicIdentity, type VaultSession } from "./crypto";
+import { sha256Hex } from "./identity";
 import { createSignal, decodeSignal, encodeSignal, signalDigest, type SignedSignal } from "./signal";
 
 export type PeerConnectionStatus = "waiting_for_pairing" | "connecting" | "connected" | "disconnected" | "reconnecting" | "failed";
@@ -16,6 +17,7 @@ export interface PeerLinkHandlers {
   onStatus?: (status: PeerConnectionStatus) => void;
   onFrame?: (frame: unknown, from: PublicIdentity) => void | Promise<void>;
   onError?: (message: string) => void;
+  onRemoteAudio?: (stream: MediaStream) => void;
 }
 
 function validateStunUrls(urls: string[]): RTCIceServer[] {
@@ -57,9 +59,12 @@ export class ManualPeerLink {
   readonly connection: RTCPeerConnection;
   private channel: RTCDataChannel | null = null;
   private remote: PublicIdentity | null = null;
-  private pendingOffer: { pairingId: string; digest: string } | null = null;
+  private pendingOffer: { pairingId: string; digest: string; signal: SignedSignal; expectedPeerId?: string } | null = null;
+  private transcript: string | null = null;
   private statusValue: PeerConnectionStatus = "waiting_for_pairing";
   private frameQueue: Promise<void> = Promise.resolve();
+  private callStream: MediaStream | null = null;
+  private callSenders: RTCRtpSender[] = [];
   private readonly handlers: PeerLinkHandlers;
 
   constructor(private readonly session: VaultSession, stunUrls: string[], handlers: PeerLinkHandlers = {}) {
@@ -67,6 +72,7 @@ export class ManualPeerLink {
     this.handlers = handlers;
     this.connection = new RTCPeerConnection({ iceServers: validateStunUrls(stunUrls), iceTransportPolicy: "all", bundlePolicy: "max-bundle" });
     this.connection.ondatachannel = (event) => this.attachChannel(event.channel);
+    this.connection.ontrack = (event) => { if (event.track.kind === "audio") this.handlers.onRemoteAudio?.(event.streams[0] ?? new MediaStream([event.track])); };
     this.connection.addEventListener("connectionstatechange", () => this.updateStatus());
     this.connection.addEventListener("iceconnectionstatechange", () => this.updateStatus());
   }
@@ -74,6 +80,9 @@ export class ManualPeerLink {
   get status(): PeerConnectionStatus { return this.statusValue; }
   get remoteIdentity(): PublicIdentity | null { return this.remote; }
   get expectsAnswer(): boolean { return this.pendingOffer !== null; }
+  get expectedPairingId(): string | undefined { return this.pendingOffer?.pairingId; }
+  get expectedRemoteDeviceId(): string | undefined { return this.pendingOffer?.expectedPeerId; }
+  get sessionTranscript(): string | null { return this.transcript; }
   get ready(): boolean { return this.channel?.readyState === "open" && this.connection.connectionState === "connected"; }
 
   private setStatus(next: PeerConnectionStatus): void {
@@ -121,7 +130,7 @@ export class ManualPeerLink {
     };
   }
 
-  async createOffer(roomId?: string, restart = false): Promise<{ code: string; signal: SignedSignal }> {
+  async createOffer(roomId?: string, restart = false, expectedPeerId?: string): Promise<{ code: string; signal: SignedSignal }> {
     if (restart && !this.remote) throw new Error("没有可重连的设备");
     if (!restart && this.channel) throw new Error("当前连接已发起配对");
     if (!this.channel) this.attachChannel(this.connection.createDataChannel("aether-p2p-v1", { ordered: true }));
@@ -131,15 +140,17 @@ export class ManualPeerLink {
     await this.connection.setLocalDescription(offer);
     const description = await gatheredDescription(this.connection, "offer");
     rejectRelayCandidate(description.sdp ?? "");
-    const signal = createSignal(this.session, { kind: "offer", pairingId, description, roomId });
+    const signal = createSignal(this.session, { kind: "offer", pairingId, description, roomId, toDeviceId: expectedPeerId ?? this.remote?.deviceId });
     const code = encodeSignal(signal);
-    this.pendingOffer = { pairingId, digest: await signalDigest(code) };
+    this.pendingOffer = { pairingId, digest: await signalDigest(code), signal, expectedPeerId: expectedPeerId ?? this.remote?.deviceId };
+    this.transcript = null;
     return { code, signal };
   }
 
   async acceptOffer(code: string): Promise<{ code: string; signal: SignedSignal }> {
     const offer = await decodeSignal(code);
     if (offer.kind !== "offer" || offer.from.deviceId === this.session.publicIdentity.deviceId) throw new Error("无效的发起连接码");
+    if (offer.toDeviceId && offer.toDeviceId !== this.session.publicIdentity.deviceId) throw new Error("连接码指定了另一台设备");
     if (this.remote && this.remote.deviceId !== offer.from.deviceId) throw new Error("重连设备身份与原设备不符");
     rejectRelayCandidate(offer.sdp.sdp);
     this.remote = offer.from;
@@ -153,6 +164,7 @@ export class ManualPeerLink {
       kind: "answer", pairingId: offer.pairingId, description,
       toDeviceId: offer.from.deviceId, roomId: offer.roomId, offerDigest: await signalDigest(code),
     });
+    this.transcript = await sha256Hex(canonical({ offer, answer: signal }));
     return { code: encodeSignal(signal), signal };
   }
 
@@ -163,8 +175,10 @@ export class ManualPeerLink {
       throw new Error("应答码不属于当前配对任务");
     }
     if (answer.from.deviceId === this.session.publicIdentity.deviceId) throw new Error("不能与本设备配对");
+    if (this.pendingOffer.expectedPeerId && answer.from.deviceId !== this.pendingOffer.expectedPeerId) throw new Error("对方身份公钥已变化；请核对新旧设备指纹");
     if (this.remote && this.remote.deviceId !== answer.from.deviceId) throw new Error("应答设备身份与原设备不符");
     rejectRelayCandidate(answer.sdp.sdp);
+    this.transcript = await sha256Hex(canonical({ offer: this.pendingOffer.signal, answer }));
     this.remote = answer.from;
     await this.connection.setRemoteDescription(answer.sdp);
     this.pendingOffer = null;
@@ -185,6 +199,52 @@ export class ManualPeerLink {
     }
     if (channel.readyState !== "open") throw new Error("连接已断开，消息留在本地待发送队列");
     channel.send(encoded);
+  }
+
+  private addCallStream(stream: MediaStream): void {
+    if (this.callStream) throw new Error("已有正在进行的语音通话");
+    if (!stream.getAudioTracks().length) throw new Error("未获得麦克风音频轨道");
+    this.callStream = stream;
+    this.callSenders = stream.getAudioTracks().map((track) => this.connection.addTrack(track, stream));
+  }
+
+  async createCallOffer(stream: MediaStream): Promise<RTCSessionDescriptionInit> {
+    if (!this.ready) throw new Error("设备当前未连接");
+    this.addCallStream(stream);
+    try {
+      await this.connection.setLocalDescription(await this.connection.createOffer());
+      const description = await gatheredDescription(this.connection, "offer");
+      rejectRelayCandidate(description.sdp ?? "");
+      return description;
+    } catch (error) { this.endCall(); throw error; }
+  }
+
+  async answerCall(offer: RTCSessionDescriptionInit, stream: MediaStream): Promise<RTCSessionDescriptionInit> {
+    if (offer.type !== "offer" || !offer.sdp || offer.sdp.length > 50_000) throw new Error("语音协商信息无效");
+    rejectRelayCandidate(offer.sdp);
+    this.addCallStream(stream);
+    try {
+      await this.connection.setRemoteDescription(offer);
+      await this.connection.setLocalDescription(await this.connection.createAnswer());
+      const description = await gatheredDescription(this.connection, "answer");
+      rejectRelayCandidate(description.sdp ?? "");
+      return description;
+    } catch (error) { this.endCall(); throw error; }
+  }
+
+  async finishCall(answer: RTCSessionDescriptionInit): Promise<void> {
+    if (answer.type !== "answer" || !answer.sdp || answer.sdp.length > 50_000) throw new Error("语音应答无效");
+    rejectRelayCandidate(answer.sdp);
+    await this.connection.setRemoteDescription(answer);
+  }
+
+  endCall(): void {
+    for (const sender of this.callSenders) {
+      try { this.connection.removeTrack(sender); } catch { /* Connection may already be closed. */ }
+    }
+    this.callSenders = [];
+    this.callStream?.getTracks().forEach((track) => track.stop());
+    this.callStream = null;
   }
 
   async selectedCandidatePair(): Promise<CandidatePairReport | null> {
@@ -208,6 +268,7 @@ export class ManualPeerLink {
   }
 
   close(): void {
+    this.endCall();
     this.channel?.close();
     this.connection.close();
     this.setStatus("disconnected");

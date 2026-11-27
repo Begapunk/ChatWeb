@@ -1,6 +1,8 @@
 # Aether
 
-私人通讯 PWA 项目。当前开发分支 `feat/aether-serverless-p2p` 正在转向四人无服务器 P2P 聊天；默认首页是本地设备与真实 WebRTC 聊天流程。原 Matrix、Cloudflare 代码和线上测试站保留为历史资料。P2P 测试网页已发布在 [GitHub Pages](https://begapunk.github.io/ChatWeb/)，但尚未在中国大陆不同运营商的真实手机上验证，不能宣称完成正式产品。当前实现、测试和限制见 [P2P 开发状态](docs/P2P-DEVELOPMENT.md)。
+私人通讯 PWA 项目。`feat/aether-serverless-p2p` 分支的默认首页使用 WebRTC 直接连接，保留 GitHub Pages 静态托管与原 Matrix、Cloudflare 历史代码。**本轮升级尚未发布到线上网页**；当前实现、操作说明、测试证据和未完成项见 [2026-11-27 P2P 升级记录](docs/P2P-UPGRADE-2026-11-27.md)。旧版 [P2P 开发状态](docs/P2P-DEVELOPMENT.md) 是此前快照。
+
+本机开发：在 `frontend` 中运行 `npm ci`、`npm run dev`。验证命令为 `npm run typecheck`、`npm test`、`node e2e/p2p-identity.mjs`、`node e2e/p2p-local.mjs`；浏览器测试需先启动本机 Vite。GitHub Pages 构建使用 `VITE_BASE_PATH=/ChatWeb/ npm run build:pages`。发布前必须明确区分本机浏览器测试与真实手机网络测试。
 
 下方内容是早期 Matrix/Cloudflare 阶段的历史记录，不代表当前 P2P 分支的发布状态。
 

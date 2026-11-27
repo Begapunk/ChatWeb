@@ -1,15 +1,21 @@
 import { decryptAttachment, decryptMessage, encryptAttachment, encryptMessage, newHeader, signData, verifyData, type PlainMessage, type PublicIdentity, type SignedEnvelope, type VaultSession } from "./crypto";
 import { decodeSignal } from "./signal";
+import { decodeIdentityCode, identityFingerprint, newAuthNonce, sessionSas } from "./identity";
 import { ManualPeerLink, type PeerConnectionStatus } from "./transport";
-import { ackReplica, createRoom, getAttachment, getEnvelope, getPeer, getRoom, listOutbox, listRoomEnvelopes, listRooms, saveAttachment, savePeer, saveRoom, saveVault, storeIncoming, storeOutgoing, verifyPeer, type RoomRecord, type StoredEnvelope } from "./storage";
+import { ackRead, ackReplica, cancelOutbox, createRoom, deleteLocalMessage, deleteLocalRoomHistory, getAttachment, getEnvelope, getPeer, getRoom, isLocallyDeleted, listOutbox, listPeers, listRoomEnvelopes, listRooms, markPeerSeen, markRoomRead, revokePeerTrust, saveAttachment, savePeer, saveRoom, saveVault, setOutboxRetry, storeIncoming, storeOutgoing, verifyPeer, type RoomRecord, type StoredEnvelope } from "./storage";
 
 type Frame =
+  | { type: "auth-hello"; transcriptId: string; nonce: string; fromDeviceId: string; toDeviceId: string; signature: string }
   | { type: "invite"; room: RoomRecord; key: ReturnType<VaultSession["sealRoomKey"]> }
   | { type: "roster"; room: RoomRecord; signature: string }
   | { type: "key-update"; room: RoomRecord; signature: string; key: ReturnType<VaultSession["sealRoomKey"]> }
   | { type: "removed"; roomId: string; deviceId: string; epoch: number; signature: string }
   | { type: "envelope"; envelope: SignedEnvelope; ttl: number }
   | { type: "ack"; messageId: string; deviceId: string; signature: string; ttl: number }
+  | { type: "read"; messageId: string; deviceId: string; signature: string; ttl: number }
+  | { type: "call-offer"; callId: string; roomId: string; description: RTCSessionDescriptionInit }
+  | { type: "call-answer"; callId: string; description: RTCSessionDescriptionInit }
+  | { type: "call-end"; callId: string }
   | { type: "index"; roomId: string; ids: string[] }
   | { type: "request"; roomId: string; ids: string[] }
   | { type: "attachment-ready"; messageId: string }
@@ -23,7 +29,9 @@ export interface VisibleMessage {
   senderId: string;
   body: string;
   createdAt: number;
+  lamport: number;
   replicas: number;
+  deliveryState?: "等待发送" | "部分送达" | "已送达" | "已读" | "已取消后续发送";
   kind: PlainMessage["kind"];
   attachmentId?: string;
   attachmentName?: string;
@@ -38,6 +46,9 @@ export interface VisibleMessage {
 }
 
 interface IncomingAttachment { messageId: string; roomId: string; sha256: string; total: number; chunks: number; parts: Map<number, Uint8Array> }
+interface AuthState { transcriptId: string; localNonce: string; remoteNonce?: string; sas?: string; proofVerified: boolean; trusted: boolean; failed?: string }
+interface CallState { callId: string; roomId: string; phase: "incoming" | "calling" | "active"; offer?: RTCSessionDescriptionInit }
+interface LinkHistory { lastConnectedAt: number | null; reconnectCount: number; lastFailure: string | null }
 
 function base64(bytes: Uint8Array): string {
   let binary = "";
@@ -58,23 +69,89 @@ export class P2PEngine {
   readonly pending = new Set<ManualPeerLink>();
   onChange: () => void = () => {};
   onError: (message: string) => void = () => {};
+  onRemoteAudio: (deviceId: string, stream: MediaStream) => void = () => {};
   private lamport = 0;
   private sequence = 0;
   private incomingAttachments = new Map<string, IncomingAttachment>();
+  private authStates = new Map<string, AuthState>();
+  private calls = new Map<string, CallState>();
+  private linkHistory = new Map<string, LinkHistory>();
+  private retryTimer: number;
+  private readonly resumeCheck = () => {
+    if (document.visibilityState === "visible") {
+      void this.retryPending().catch((error: unknown) => this.onError(error instanceof Error ? error.message : String(error)));
+      this.onChange();
+    }
+  };
 
-  constructor(readonly session: VaultSession, readonly stunUrls: string[]) {}
+  constructor(readonly session: VaultSession, readonly stunUrls: string[]) {
+    this.retryTimer = window.setInterval(() => { void this.retryPending().catch((error: unknown) => this.onError(error instanceof Error ? error.message : String(error))); }, 5000);
+    window.addEventListener("online", this.resumeCheck);
+    window.addEventListener("pageshow", this.resumeCheck);
+    document.addEventListener("visibilitychange", this.resumeCheck);
+  }
+
+  async retryPending(): Promise<void> {
+    for (const item of await listOutbox()) {
+      if (item.nextAttemptAt > Date.now()) continue;
+      await this.retryMessage(item.messageId);
+    }
+  }
+
+  async retryMessage(messageId: string): Promise<void> {
+    const item = (await listOutbox()).find((entry) => entry.messageId === messageId);
+    const record = item && await getEnvelope(messageId);
+    if (!item || !record || record.cancelledAt) throw new Error("消息不在待发队列中");
+    let attempted = false;
+    for (const deviceId of item.pendingDeviceIds) {
+      const link = this.links.get(deviceId);
+      if (!link?.ready || !this.authStates.get(deviceId)?.trusted || !(await getPeer(deviceId))?.verifiedAt) continue;
+      attempted = true;
+      try { await link.send({ type: "envelope", envelope: record.envelope, ttl: 3 } satisfies Frame); }
+      catch (error) { this.onError(error instanceof Error ? error.message : String(error)); }
+    }
+    if (attempted) {
+      const attempts = item.attempts + 1;
+      await setOutboxRetry(messageId, attempts, Date.now() + Math.min(60_000, 2000 * 2 ** Math.min(attempts, 5)));
+      this.onChange();
+    }
+  }
+
+  async cancelPending(messageId: string): Promise<void> {
+    await cancelOutbox(messageId, this.session.publicIdentity.deviceId);
+    this.onChange();
+  }
+
+  async deleteMessageLocally(messageId: string): Promise<void> {
+    await deleteLocalMessage(messageId);
+    this.onChange();
+  }
+
+  async deleteRoomHistoryLocally(roomId: string): Promise<number> {
+    const count = await deleteLocalRoomHistory(roomId);
+    this.onChange();
+    return count;
+  }
 
   private makeLink(): ManualPeerLink {
     const link: ManualPeerLink = new ManualPeerLink(this.session, this.stunUrls, {
-      onStatus: (status) => void this.statusChanged(link, status),
+      onStatus: (status) => void this.statusChanged(link, status).catch((error: unknown) => this.onError(error instanceof Error ? error.message : String(error))),
       onFrame: (raw, from) => this.receive(raw, from, link),
       onError: (message) => this.onError(message),
+      onRemoteAudio: (stream) => { if (link.remoteIdentity) this.onRemoteAudio(link.remoteIdentity.deviceId, stream); },
     });
     this.pending.add(link);
     return link;
   }
 
   private async statusChanged(link: ManualPeerLink, status: PeerConnectionStatus): Promise<void> {
+    if (link.remoteIdentity && (status === "connected" || status === "failed")) {
+      const id = link.remoteIdentity.deviceId;
+      const previous = this.linkHistory.get(id) ?? { lastConnectedAt: null, reconnectCount: 0, lastFailure: null };
+      this.linkHistory.set(id, status === "connected" ? {
+        lastConnectedAt: Date.now(), reconnectCount: previous.lastConnectedAt ? previous.reconnectCount + 1 : 0, lastFailure: previous.lastFailure,
+      } : { ...previous, lastFailure: "ICE 或 PeerConnection 进入 failed 状态" });
+    }
     if (status === "connected" && link.remoteIdentity) {
       const id = link.remoteIdentity.deviceId;
       await savePeer(link.remoteIdentity);
@@ -82,20 +159,109 @@ export class P2PEngine {
       if (previous && previous !== link) previous.close();
       this.links.set(id, link);
       this.pending.delete(link);
-      await this.syncWith(link);
+      await this.beginAuth(link);
+    } else if (link.remoteIdentity && this.links.get(link.remoteIdentity.deviceId) === link && status !== "connecting" && status !== "reconnecting") {
+      this.authStates.delete(link.remoteIdentity.deviceId);
+      this.calls.delete(link.remoteIdentity.deviceId);
+      link.endCall();
     }
     this.onChange();
   }
 
-  async offer(roomId?: string): Promise<string> {
+  authFor(deviceId: string): AuthState | undefined { return this.authStates.get(deviceId); }
+  historyFor(deviceId: string): LinkHistory | undefined { return this.linkHistory.get(deviceId); }
+  callFor(deviceId: string): CallState | undefined { return this.calls.get(deviceId); }
+
+  private async directRoomFor(deviceId: string, roomId: string): Promise<RoomRecord> {
+    const room = await getRoom(roomId);
+    if (!room || room.kind !== "direct" || room.removedAt || room.members.length !== 2 ||
+        !room.members.some((member) => member.deviceId === deviceId) || !room.members.some((member) => member.deviceId === this.session.publicIdentity.deviceId) ||
+        !this.authStates.get(deviceId)?.trusted || !(await getPeer(deviceId))?.verifiedAt) throw new Error("仅可与已认证的私聊设备通话");
+    return room;
+  }
+
+  async startCall(roomId: string, deviceId: string): Promise<void> {
+    await this.directRoomFor(deviceId, roomId);
+    const link = this.links.get(deviceId);
+    if (!link?.ready || this.calls.has(deviceId)) throw new Error("设备未连接或已有语音通话");
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    const callId = crypto.randomUUID();
+    try {
+      const description = await link.createCallOffer(stream);
+      this.calls.set(deviceId, { callId, roomId, phase: "calling" });
+      await link.send({ type: "call-offer", callId, roomId, description } satisfies Frame);
+      this.onChange();
+    } catch (error) { link.endCall(); stream.getTracks().forEach((track) => track.stop()); this.calls.delete(deviceId); throw error; }
+  }
+
+  async acceptCall(deviceId: string): Promise<void> {
+    const call = this.calls.get(deviceId);
+    const link = this.links.get(deviceId);
+    if (!call || call.phase !== "incoming" || !call.offer || !link?.ready) throw new Error("没有待接听的语音通话");
+    await this.directRoomFor(deviceId, call.roomId);
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    try {
+      const description = await link.answerCall(call.offer, stream);
+      await link.send({ type: "call-answer", callId: call.callId, description } satisfies Frame);
+      call.phase = "active";
+      this.onChange();
+    } catch (error) { link.endCall(); stream.getTracks().forEach((track) => track.stop()); this.calls.delete(deviceId); throw error; }
+  }
+
+  async endCall(deviceId: string): Promise<void> {
+    const call = this.calls.get(deviceId);
+    if (!call) return;
+    const link = this.links.get(deviceId);
+    try { if (link?.ready) await link.send({ type: "call-end", callId: call.callId } satisfies Frame); }
+    finally { link?.endCall(); this.calls.delete(deviceId); this.onChange(); }
+  }
+
+  private async beginAuth(link: ManualPeerLink): Promise<void> {
+    const remote = link.remoteIdentity;
+    const transcriptId = link.sessionTranscript;
+    if (!remote || !transcriptId || !link.ready) throw new Error("无法将身份验证绑定到当前 WebRTC 会话");
+    const existing = this.authStates.get(remote.deviceId);
+    if (existing?.transcriptId === transcriptId) return;
+    const localNonce = newAuthNonce();
+    this.authStates.set(remote.deviceId, { transcriptId, localNonce, proofVerified: false, trusted: false });
+    const payload = { transcriptId, nonce: localNonce, fromDeviceId: this.session.publicIdentity.deviceId, toDeviceId: remote.deviceId };
+    await link.send({ type: "auth-hello", ...payload, signature: signData(this.session, "auth-hello", payload) } satisfies Frame);
+    this.onChange();
+  }
+
+  private async handleAuthHello(raw: Record<string, unknown>, from: PublicIdentity, link: ManualPeerLink): Promise<void> {
+    const frame = raw as unknown as Extract<Frame, { type: "auth-hello" }>;
+    const transcriptId = link.sessionTranscript;
+    const payload = { transcriptId: frame.transcriptId, nonce: frame.nonce, fromDeviceId: frame.fromDeviceId, toDeviceId: frame.toDeviceId };
+    if (!transcriptId || frame.transcriptId !== transcriptId || frame.fromDeviceId !== from.deviceId ||
+        frame.toDeviceId !== this.session.publicIdentity.deviceId || !/^[A-Za-z0-9_-]{43}$/.test(frame.nonce) ||
+        !verifyData(from, "auth-hello", payload, frame.signature)) throw new Error("设备会话身份认证失败，已拒绝通信");
+    await savePeer(from);
+    await this.beginAuth(link);
+    const state = this.authStates.get(from.deviceId)!;
+    if (state.remoteNonce && state.remoteNonce !== frame.nonce) throw new Error("收到冲突的身份认证挑战");
+    state.remoteNonce = frame.nonce;
+    state.sas = await sessionSas(transcriptId,
+      { id: this.session.publicIdentity.deviceId, nonce: state.localNonce },
+      { id: from.deviceId, nonce: frame.nonce });
+    state.proofVerified = true;
+    await markPeerSeen(from.deviceId);
+    const peer = await getPeer(from.deviceId);
+    state.trusted = Boolean(peer?.verifiedAt && !peer.revokedAt);
+    this.onChange();
+    if (state.trusted) await this.syncWith(link);
+  }
+
+  async offer(roomId?: string, expectedPeerId?: string): Promise<string> {
     const link = this.makeLink();
-    try { return (await link.createOffer(roomId)).code; }
+    try { return (await link.createOffer(roomId, false, expectedPeerId)).code; }
     catch (error) { link.close(); this.pending.delete(link); throw error; }
   }
 
   async answer(code: string): Promise<string> {
     const signal = await decodeSignal(code);
     if (signal.kind !== "offer") throw new Error("请输入发起码");
+    await this.rejectChangedNamedIdentity(signal.from);
     const existing = this.links.get(signal.from.deviceId);
     const link = existing ?? this.makeLink();
     try { return (await link.acceptOffer(code)).code; }
@@ -105,15 +271,29 @@ export class P2PEngine {
   async finish(code: string): Promise<PublicIdentity> {
     const signal = await decodeSignal(code);
     if (signal.kind !== "answer") throw new Error("请输入应答码");
-    const link = [...this.pending, ...this.links.values()].find((item) => item.expectsAnswer && (!item.remoteIdentity || item.remoteIdentity.deviceId === signal.from.deviceId));
+    const link = [...this.pending, ...this.links.values()].find((item) => item.expectedPairingId === signal.pairingId);
     if (!link) throw new Error("没有等待应答的连接，请先创建发起码");
+    await this.rejectChangedNamedIdentity(signal.from);
+    if (link.expectedRemoteDeviceId && signal.from.deviceId !== link.expectedRemoteDeviceId) {
+      const oldPeer = await getPeer(link.expectedRemoteDeviceId);
+      const oldFingerprint = oldPeer ? await identityFingerprint(oldPeer.identity) : "未知";
+      const newFingerprint = await identityFingerprint(signal.from);
+      throw new Error(`设备身份已变化，已阻止连接。原指纹：${oldFingerprint}；新指纹：${newFingerprint}`);
+    }
     return link.acceptAnswer(code);
+  }
+
+  private async rejectChangedNamedIdentity(identity: PublicIdentity): Promise<void> {
+    const prior = (await listPeers()).find((peer) => peer.verifiedAt && !peer.revokedAt && peer.deviceId !== identity.deviceId &&
+      peer.identity.name.trim().toLocaleLowerCase() === identity.name.trim().toLocaleLowerCase());
+    if (!prior) return;
+    throw new Error(`同名设备身份发生变化，已阻止连接。旧指纹：${await identityFingerprint(prior.identity)}；新指纹：${await identityFingerprint(identity)}。如确认更换设备，请先撤销旧设备信任，再重新配对验证。`);
   }
 
   async restartOffer(deviceId: string): Promise<string> {
     const link = this.links.get(deviceId);
     if (!link) throw new Error("没有可重连的设备，请重新配对");
-    return (await link.createOffer(undefined, true)).code;
+    return (await link.createOffer(undefined, true, deviceId)).code;
   }
 
   async createRoom(name: string): Promise<RoomRecord> {
@@ -121,18 +301,67 @@ export class P2PEngine {
     this.session.createRoom(roomId);
     const now = Date.now();
     const room: RoomRecord = { roomId, name: name.trim().slice(0, 80), ownerDeviceId: this.session.publicIdentity.deviceId,
-      members: [this.session.publicIdentity], currentEpoch: 1, createdAt: now, updatedAt: now, lastReadLamport: 0 };
+      members: [this.session.publicIdentity], currentEpoch: 1, createdAt: now, updatedAt: now, lastReadLamport: 0, kind: "group" };
     await createRoom(room, this.session.publicIdentity.deviceId);
     await saveVault(this.session.encryptedRecord());
     this.onChange();
     return room;
   }
 
+  async createDirect(deviceId: string): Promise<RoomRecord> {
+    const peer = await getPeer(deviceId);
+    const link = this.links.get(deviceId);
+    if (!peer?.verifiedAt || peer.revokedAt || !link?.ready || !this.authStates.get(deviceId)?.trusted) {
+      throw new Error("请先与对方建立连接并完成身份认证");
+    }
+    const existing = (await listRooms()).find((room) => room.kind === "direct" && !room.removedAt &&
+      room.members.length === 2 && room.members.some((member) => member.deviceId === deviceId) &&
+      room.members.some((member) => member.deviceId === this.session.publicIdentity.deviceId));
+    if (existing) return existing;
+    const roomId = crypto.randomUUID();
+    this.session.createRoom(roomId);
+    const now = Date.now();
+    const room: RoomRecord = { roomId, name: peer.identity.name, kind: "direct",
+      ownerDeviceId: this.session.publicIdentity.deviceId, members: [this.session.publicIdentity, peer.identity],
+      currentEpoch: 1, createdAt: now, updatedAt: now, lastReadLamport: 0 };
+    await createRoom(room, this.session.publicIdentity.deviceId);
+    await saveVault(this.session.encryptedRecord());
+    await link.send({ type: "invite", room, key: this.session.sealRoomKey(roomId, peer.identity) } satisfies Frame);
+    this.onChange();
+    return room;
+  }
+
   async trustPeer(deviceId: string): Promise<void> {
     const link = this.links.get(deviceId);
-    if (!link?.remoteIdentity || !link.ready) throw new Error("设备尚未建立连接");
+    const state = this.authStates.get(deviceId);
+    if (!link?.remoteIdentity || !link.ready || !state?.proofVerified || !state.sas) throw new Error("设备尚未完成本次连接的持钥验证");
     await verifyPeer(deviceId);
+    state.trusted = true;
     await this.syncWith(link);
+    this.onChange();
+  }
+
+  async trustByIdentityCode(deviceId: string, code: string): Promise<void> {
+    const scanned = await decodeIdentityCode(code);
+    const peer = await getPeer(deviceId);
+    if (!peer || scanned.deviceId !== deviceId || scanned.signingPublicKey !== peer.identity.signingPublicKey ||
+        scanned.exchangePublicKey !== peer.identity.exchangePublicKey) {
+      const oldFingerprint = peer ? await identityFingerprint(peer.identity) : "未知";
+      const newFingerprint = await identityFingerprint(scanned);
+      throw new Error(`身份不匹配，已阻止信任。当前连接：${oldFingerprint}；二维码：${newFingerprint}`);
+    }
+    await this.trustPeer(deviceId);
+  }
+
+  async revokeTrust(deviceId: string): Promise<void> {
+    for (const room of await listRooms()) {
+      if (room.kind === "direct" || room.ownerDeviceId !== this.session.publicIdentity.deviceId ||
+          room.removedAt || !room.members.some((member) => member.deviceId === deviceId)) continue;
+      await this.removeMember(room.roomId, deviceId);
+    }
+    await revokePeerTrust(deviceId);
+    const state = this.authStates.get(deviceId);
+    if (state) state.trusted = false;
     this.onChange();
   }
 
@@ -140,21 +369,30 @@ export class P2PEngine {
     const room = await getRoom(roomId);
     const link = this.links.get(deviceId);
     const peer = await getPeer(deviceId);
-    if (!room || room.ownerDeviceId !== this.session.publicIdentity.deviceId) throw new Error("只有房间创建者可以邀请成员");
-    if (!link?.ready || !peer?.verifiedAt) throw new Error("请先建立连接并当面核对设备指纹");
+    if (!room || room.kind === "direct" || room.ownerDeviceId !== this.session.publicIdentity.deviceId) throw new Error("只有群聊创建者可以邀请成员");
+    if (!link?.ready || !peer?.verifiedAt || !this.authStates.get(deviceId)?.trusted) throw new Error("请先完成当前连接的设备身份认证");
     if (room.members.length >= 4 && !room.members.some((member) => member.deviceId === deviceId)) throw new Error("房间最多四人");
-    const members = room.members.some((member) => member.deviceId === deviceId) ? room.members : [...room.members, peer.identity];
-    const next = { ...room, members, updatedAt: Date.now() };
+    const alreadyMember = room.members.some((member) => member.deviceId === deviceId);
+    const members = alreadyMember ? room.members : [...room.members, peer.identity];
+    const epoch = alreadyMember ? room.currentEpoch : this.session.rotateRoomKey(roomId);
+    const next = { ...room, members, currentEpoch: epoch, updatedAt: Date.now() };
     await saveRoom(next, this.session.publicIdentity.deviceId);
+    if (!alreadyMember) await saveVault(this.session.encryptedRecord());
     await link.send({ type: "invite", room: next, key: this.session.sealRoomKey(roomId, peer.identity) } satisfies Frame);
-    await this.broadcast(next, this.rosterFrame(next), deviceId);
+    if (!alreadyMember) {
+      for (const member of room.members) {
+        if (member.deviceId === this.session.publicIdentity.deviceId) continue;
+        const existingLink = this.links.get(member.deviceId);
+        if (existingLink?.ready && this.authStates.get(member.deviceId)?.trusted) await existingLink.send(this.keyUpdateFrame(next, member));
+      }
+    }
     await this.syncWith(link);
     this.onChange();
   }
 
   async removeMember(roomId: string, deviceId: string): Promise<void> {
     const room = await getRoom(roomId);
-    if (!room || room.ownerDeviceId !== this.session.publicIdentity.deviceId) throw new Error("只有房间创建者可以移除成员");
+    if (!room || room.kind === "direct" || room.ownerDeviceId !== this.session.publicIdentity.deviceId) throw new Error("只有群聊创建者可以移除成员");
     if (deviceId === room.ownerDeviceId || !room.members.some((member) => member.deviceId === deviceId)) throw new Error("无法移除该设备");
     const epoch = this.session.rotateRoomKey(roomId);
     const next = { ...room, members: room.members.filter((member) => member.deviceId !== deviceId), currentEpoch: epoch, updatedAt: Date.now() };
@@ -168,13 +406,9 @@ export class P2PEngine {
     for (const member of next.members) {
       if (member.deviceId === this.session.publicIdentity.deviceId) continue;
       const link = this.links.get(member.deviceId);
-      if (link?.ready && (await getPeer(member.deviceId))?.verifiedAt) await link.send(this.keyUpdateFrame(next, member));
+      if (link?.ready && this.authStates.get(member.deviceId)?.trusted && (await getPeer(member.deviceId))?.verifiedAt) await link.send(this.keyUpdateFrame(next, member));
     }
     this.onChange();
-  }
-
-  private rosterFrame(room: RoomRecord): Extract<Frame, { type: "roster" }> {
-    return { type: "roster", room, signature: signData(this.session, "roster", room) };
   }
 
   private keyUpdateFrame(room: RoomRecord, recipient: PublicIdentity): Extract<Frame, { type: "key-update" }> {
@@ -185,6 +419,26 @@ export class P2PEngine {
   private ackFrame(messageId: string): Extract<Frame, { type: "ack" }> {
     const deviceId = this.session.publicIdentity.deviceId;
     return { type: "ack", messageId, deviceId, signature: signData(this.session, "ack", { messageId, deviceId }), ttl: 3 };
+  }
+
+  private readFrame(messageId: string): Extract<Frame, { type: "read" }> {
+    const deviceId = this.session.publicIdentity.deviceId;
+    return { type: "read", messageId, deviceId, signature: signData(this.session, "read", { messageId, deviceId }), ttl: 3 };
+  }
+
+  async readRoom(roomId: string): Promise<void> {
+    const room = await getRoom(roomId);
+    if (!room || room.removedAt) return;
+    const readableIds = new Set<string>();
+    for (const record of await listRoomEnvelopes(roomId)) {
+      const sender = room.members.find((member) => member.deviceId === record.senderDeviceId);
+      if (!sender) continue;
+      try { decryptMessage(this.session, record.envelope, sender); readableIds.add(record.messageId); }
+      catch { /* Missing key: never claim this message was read. */ }
+    }
+    const ids = await markRoomRead(roomId, this.session.publicIdentity.deviceId, readableIds);
+    for (const id of ids) await this.broadcast(room, this.readFrame(id));
+    if (ids.length) this.onChange();
   }
 
   async sendText(roomId: string, body: string, replyTo?: string): Promise<void> {
@@ -208,6 +462,13 @@ export class P2PEngine {
   private async sendPlain(roomId: string, plain: PlainMessage): Promise<void> {
     const room = await getRoom(roomId);
     if (!room || room.removedAt) throw new Error("房间已移除或消息无效");
+    for (const member of room.members) {
+      if (member.deviceId !== this.session.publicIdentity.deviceId && (await getPeer(member.deviceId))?.revokedAt) throw new Error("房间包含已撤销信任的设备，请先由群主移除并轮换密钥");
+    }
+    if (room.kind === "direct") {
+      const other = room.members.find((member) => member.deviceId !== this.session.publicIdentity.deviceId);
+      if (!other || !(await getPeer(other.deviceId))?.verifiedAt || (await getPeer(other.deviceId))?.revokedAt) throw new Error("私聊对方尚未通过设备身份认证");
+    }
     const existing = await listRoomEnvelopes(roomId);
     this.lamport = Math.max(this.lamport, ...existing.map((entry) => entry.lamportTimestamp), 0) + 1;
     this.sequence = Math.max(this.sequence, ...existing.filter((entry) => entry.senderDeviceId === this.session.publicIdentity.deviceId).map((entry) => entry.senderSequence), 0) + 1;
@@ -222,6 +483,14 @@ export class P2PEngine {
   async sendAttachment(roomId: string, file: File): Promise<void> {
     const room = await getRoom(roomId);
     if (!room || room.removedAt) throw new Error("房间不存在或已移除");
+    for (const member of room.members) {
+      if (member.deviceId !== this.session.publicIdentity.deviceId && (await getPeer(member.deviceId))?.revokedAt) throw new Error("房间包含已撤销信任的设备，请先由群主移除并轮换密钥");
+    }
+    if (room.kind === "direct") {
+      const other = room.members.find((member) => member.deviceId !== this.session.publicIdentity.deviceId);
+      const peer = other && await getPeer(other.deviceId);
+      if (!peer?.verifiedAt || peer.revokedAt) throw new Error("私聊对方尚未通过设备身份认证");
+    }
     if (file.size < 1 || file.size > 2 * 1024 * 1024) throw new Error("附件须在 1 字节至 2 MiB 之间");
     const attachmentId = crypto.randomUUID();
     const epoch = this.session.currentEpoch(roomId);
@@ -260,19 +529,23 @@ export class P2PEngine {
     const room = await getRoom(roomId);
     if (!room) return [];
     const records = await listRoomEnvelopes(roomId);
-    const events = await Promise.all(records.map(async (record) => {
+    const events = await Promise.all(records.map(async (record): Promise<VisibleMessage> => {
       const sender = room.members.find((member) => member.deviceId === record.senderDeviceId);
       try {
         if (!sender) throw new Error("发送者不在成员列表");
         const plain = decryptMessage(this.session, record.envelope, sender);
-        return { id: record.messageId, sender: sender.name, senderId: sender.deviceId, body: plain.body ?? "", createdAt: record.envelope.header.createdAt,
+        return { id: record.messageId, sender: sender.name, senderId: sender.deviceId, body: plain.body ?? "", createdAt: record.envelope.header.createdAt, lamport: record.lamportTimestamp,
           replicas: 1 + record.ackedBy.length, kind: plain.kind,
           attachmentId: plain.attachmentId, attachmentName: plain.attachmentName, attachmentMime: plain.attachmentMime,
           attachmentBytes: plain.attachmentBytes, attachmentReady: plain.attachmentId ? Boolean(await getAttachment(plain.attachmentId)) : undefined,
+          deliveryState: record.senderDeviceId === this.session.publicIdentity.deviceId ?
+            (record.cancelledAt ? "已取消后续发送" : record.readBy?.length === room.members.length - 1 && room.members.length > 1 ? "已读" :
+              record.ackedBy.length === room.members.length - 1 && room.members.length > 1 ? "已送达" :
+                record.ackedBy.length ? "部分送达" : "等待发送") : undefined,
           replyTo: plain.replyTo, targetMessageId: plain.targetMessageId, emoji: plain.emoji };
       } catch {
         return { id: record.messageId, sender: sender?.name ?? "未知设备", senderId: sender?.deviceId ?? "", body: "[无法解密或密钥缺失]",
-          createdAt: record.envelope.header.createdAt, replicas: 1 + record.ackedBy.length, kind: "text" as const };
+          createdAt: record.envelope.header.createdAt, lamport: record.lamportTimestamp, replicas: 1 + record.ackedBy.length, kind: "text" as const };
       }
     }));
     const rendered = new Map<string, VisibleMessage>();
@@ -293,26 +566,29 @@ export class P2PEngine {
   private async broadcast(room: RoomRecord, frame: Frame, except?: string): Promise<void> {
     await Promise.all(room.members.filter((member) => member.deviceId !== except).map(async (member) => {
       const link = this.links.get(member.deviceId);
-      if (link?.ready && (await getPeer(member.deviceId))?.verifiedAt) {
+      if (link?.ready && this.authStates.get(member.deviceId)?.trusted && (await getPeer(member.deviceId))?.verifiedAt) {
         try { await link.send(frame); } catch (error) { this.onError(error instanceof Error ? error.message : String(error)); }
       }
     }));
   }
 
   private async syncWith(link: ManualPeerLink): Promise<void> {
-    if (!link.remoteIdentity || !(await getPeer(link.remoteIdentity.deviceId))?.verifiedAt) return;
+    if (!link.remoteIdentity || !this.authStates.get(link.remoteIdentity.deviceId)?.trusted || !(await getPeer(link.remoteIdentity.deviceId))?.verifiedAt) return;
     for (const room of await listRooms()) {
       if (!room.members.some((member) => member.deviceId === link.remoteIdentity?.deviceId)) continue;
       if (room.ownerDeviceId === this.session.publicIdentity.deviceId) await link.send(this.keyUpdateFrame(room, link.remoteIdentity));
       const records = await listRoomEnvelopes(room.roomId);
       for (let index = 0; index < records.length; index += 100) {
-        await link.send({ type: "index", roomId: room.roomId, ids: records.slice(index, index + 100).map((item) => item.messageId) } satisfies Frame);
+        await link.send({ type: "index", roomId: room.roomId, ids: records.slice(index, index + 100).filter((item) => !item.cancelledAt).map((item) => item.messageId) } satisfies Frame);
       }
       for (const record of records) {
         const sender = room.members.find((member) => member.deviceId === record.senderDeviceId);
         if (!sender) continue;
         try {
           const plain = decryptMessage(this.session, record.envelope, sender);
+          if (record.readBy?.includes(this.session.publicIdentity.deviceId) && record.senderDeviceId !== this.session.publicIdentity.deviceId) {
+            await link.send(this.readFrame(record.messageId));
+          }
           if (plain.attachmentId) {
             await link.send({ type: (await getAttachment(plain.attachmentId)) ? "attachment-ready" : "attachment-request", messageId: record.messageId } satisfies Frame);
           }
@@ -328,12 +604,45 @@ export class P2PEngine {
 
   private async receive(raw: unknown, from: PublicIdentity, link: ManualPeerLink): Promise<void> {
     if (!isRecord(raw) || typeof raw.type !== "string") throw new Error("未知 P2P 数据帧");
+    if (raw.type === "auth-hello") {
+      try { await this.handleAuthHello(raw, from, link); }
+      catch (error) {
+        const state = this.authStates.get(from.deviceId);
+        if (state) { state.failed = error instanceof Error ? error.message : "认证失败"; state.trusted = false; state.proofVerified = false; }
+        this.onChange();
+        throw error;
+      }
+      return;
+    }
     const peer = await getPeer(from.deviceId);
-    if (!peer?.verifiedAt) throw new Error("未核对指纹的设备不能收发房间数据");
+    if (!peer?.verifiedAt || peer.revokedAt || !this.authStates.get(from.deviceId)?.trusted) throw new Error("未完成本次身份认证的设备不能收发房间数据");
+    if (raw.type === "call-offer") {
+      const frame = raw as unknown as Extract<Frame, { type: "call-offer" }>;
+      await this.directRoomFor(from.deviceId, frame.roomId);
+      if (this.calls.has(from.deviceId) || typeof frame.callId !== "string" || !/^[0-9a-f-]{36}$/.test(frame.callId) ||
+          frame.description?.type !== "offer" || typeof frame.description.sdp !== "string" || frame.description.sdp.length > 50_000) throw new Error("语音通话请求无效");
+      this.calls.set(from.deviceId, { callId: frame.callId, roomId: frame.roomId, phase: "incoming", offer: frame.description });
+      this.onChange(); return;
+    }
+    if (raw.type === "call-answer") {
+      const frame = raw as unknown as Extract<Frame, { type: "call-answer" }>;
+      const call = this.calls.get(from.deviceId);
+      if (!call || call.phase !== "calling" || call.callId !== frame.callId) throw new Error("语音应答与本次通话不符");
+      await link.finishCall(frame.description);
+      call.phase = "active"; this.onChange(); return;
+    }
+    if (raw.type === "call-end") {
+      const frame = raw as unknown as Extract<Frame, { type: "call-end" }>;
+      const call = this.calls.get(from.deviceId);
+      if (call?.callId === frame.callId) { link.endCall(); this.calls.delete(from.deviceId); this.onChange(); }
+      return;
+    }
     if (raw.type === "invite") {
       const frame = raw as unknown as Extract<Frame, { type: "invite" }>;
       const room = frame.room;
-      if (!room || room.ownerDeviceId !== from.deviceId || !room.members?.some((member) => member.deviceId === this.session.publicIdentity.deviceId) || room.members.length > 4 || frame.key?.roomId !== room.roomId) throw new Error("房间邀请无效");
+      if (!room || room.ownerDeviceId !== from.deviceId || !room.members?.some((member) => member.deviceId === this.session.publicIdentity.deviceId) || room.members.length > 4 ||
+          (room.kind === "direct" && (room.members.length !== 2 || !room.members.some((member) => member.deviceId === from.deviceId))) ||
+          frame.key?.roomId !== room.roomId) throw new Error("房间邀请无效");
       this.session.openRoomKey(frame.key, from);
       await saveRoom(room, this.session.publicIdentity.deviceId);
       await saveVault(this.session.encryptedRecord());
@@ -344,7 +653,7 @@ export class P2PEngine {
     if (raw.type === "roster") {
       const frame = raw as unknown as Extract<Frame, { type: "roster" }>;
       const current = await getRoom(frame.room?.roomId);
-      if (!current || current.ownerDeviceId !== from.deviceId || frame.room.ownerDeviceId !== from.deviceId ||
+      if (!current || current.kind === "direct" || current.ownerDeviceId !== from.deviceId || frame.room.ownerDeviceId !== from.deviceId ||
           frame.room.members.length > 4 || frame.room.currentEpoch !== current.currentEpoch ||
           !current.members.every((member) => frame.room.members.some((newMember) => newMember.deviceId === member.deviceId)) ||
           !verifyData(from, "roster", frame.room, frame.signature)) throw new Error("房间成员更新验证失败");
@@ -379,6 +688,8 @@ export class P2PEngine {
       const frame = raw as unknown as Extract<Frame, { type: "envelope" }>;
       const room = await getRoom(frame.envelope?.header?.roomId);
       if (!room || room.removedAt || !room.members.some((member) => member.deviceId === from.deviceId)) throw new Error("发送方不在房间中");
+      if (room.kind === "direct" && frame.envelope.header.senderDeviceId !== from.deviceId) throw new Error("私聊禁止第三方转发");
+      if (await isLocallyDeleted(frame.envelope.header.messageId)) return;
       const added = await storeIncoming(frame.envelope);
       if (frame.envelope.header.senderDeviceId !== this.session.publicIdentity.deviceId) await link.send(this.ackFrame(frame.envelope.header.messageId));
       if (added) {
@@ -406,6 +717,20 @@ export class P2PEngine {
         await ackReplica(frame.messageId, frame.deviceId);
         this.onChange();
         if (Number.isSafeInteger(frame.ttl) && frame.ttl > 0 && frame.ttl <= 3) await this.broadcast(room, { ...frame, ttl: frame.ttl - 1 }, from.deviceId);
+      }
+      return;
+    }
+    if (raw.type === "read" && typeof raw.messageId === "string") {
+      const frame = raw as unknown as Extract<Frame, { type: "read" }>;
+      const record = await getEnvelope(frame.messageId);
+      const room = record && await getRoom(record.roomId);
+      const reader = room?.members.find((member) => member.deviceId === frame.deviceId);
+      if (!record || !room || !reader || !room.members.some((member) => member.deviceId === from.deviceId) ||
+          (room.kind === "direct" && frame.deviceId !== from.deviceId) ||
+          !verifyData(reader, "read", { messageId: frame.messageId, deviceId: frame.deviceId }, frame.signature)) throw new Error("已读回执签名无效");
+      if (await ackRead(frame.messageId, frame.deviceId)) {
+        this.onChange();
+        if (room.kind !== "direct" && Number.isSafeInteger(frame.ttl) && frame.ttl > 0 && frame.ttl <= 3) await this.broadcast(room, { ...frame, ttl: frame.ttl - 1 }, from.deviceId);
       }
       return;
     }
@@ -481,12 +806,12 @@ export class P2PEngine {
       if (!room?.members.some((member) => member.deviceId === from.deviceId)) throw new Error("同步请求者不在房间中");
       if (raw.type === "index") {
         const missing: string[] = [];
-        for (const id of raw.ids) if (!(await getEnvelope(id))) missing.push(id);
+        for (const id of raw.ids) if (!(await getEnvelope(id)) && !(await isLocallyDeleted(id))) missing.push(id);
         if (missing.length) await link.send({ type: "request", roomId: room.roomId, ids: missing } satisfies Frame);
       } else {
         for (const id of raw.ids) {
           const record: StoredEnvelope | undefined = await getEnvelope(id);
-          if (record?.roomId === room.roomId) await link.send({ type: "envelope", envelope: record.envelope, ttl: 0 } satisfies Frame);
+          if (record?.roomId === room.roomId && !record.cancelledAt) await link.send({ type: "envelope", envelope: record.envelope, ttl: 0 } satisfies Frame);
         }
       }
       return;
@@ -495,6 +820,11 @@ export class P2PEngine {
   }
 
   close(): void {
+    window.clearInterval(this.retryTimer);
+    window.removeEventListener("online", this.resumeCheck);
+    window.removeEventListener("pageshow", this.resumeCheck);
+    document.removeEventListener("visibilitychange", this.resumeCheck);
+    this.calls.clear();
     for (const link of this.links.values()) link.close();
     for (const link of this.pending) link.close();
     this.links.clear(); this.pending.clear(); this.session.lock();

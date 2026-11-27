@@ -14,6 +14,7 @@ export interface RoomRecord {
   updatedAt: number;
   lastReadLamport: number;
   removedAt?: number;
+  kind?: "group" | "direct";
 }
 
 export interface PeerRecord {
@@ -21,6 +22,8 @@ export interface PeerRecord {
   identity: PublicIdentity;
   verifiedAt: number | null;
   lastSeenAt: number | null;
+  revokedAt?: number | null;
+  alias?: string;
 }
 
 export interface StoredEnvelope {
@@ -32,6 +35,8 @@ export interface StoredEnvelope {
   envelope: SignedEnvelope;
   storedAt: number;
   ackedBy: string[];
+  readBy?: string[];
+  cancelledAt?: number;
 }
 
 export interface OutboxItem {
@@ -112,7 +117,7 @@ export async function savePeer(identity: PublicIdentity): Promise<PeerRecord> {
   if (existing && (existing.identity.signingPublicKey !== identity.signingPublicKey || existing.identity.exchangePublicKey !== identity.exchangePublicKey)) {
     throw new Error("设备身份密钥发生变化；请人工核对并重新配对");
   }
-  const next = existing ?? { deviceId: identity.deviceId, identity, verifiedAt: null, lastSeenAt: null };
+  const next = existing ? { ...existing, identity: { ...identity, name: identity.name } } : { deviceId: identity.deviceId, identity, verifiedAt: null, lastSeenAt: null };
   await db.put("peers", next);
   return next;
 }
@@ -121,7 +126,27 @@ export async function verifyPeer(deviceId: string): Promise<void> {
   const db = await database();
   const peer = await db.get("peers", deviceId);
   if (!peer) throw new Error("未知设备");
-  await db.put("peers", { ...peer, verifiedAt: Date.now() });
+  await db.put("peers", { ...peer, verifiedAt: Date.now(), revokedAt: null });
+}
+
+export async function revokePeerTrust(deviceId: string): Promise<void> {
+  const db = await database();
+  const peer = await db.get("peers", deviceId);
+  if (!peer) throw new Error("未知设备");
+  await db.put("peers", { ...peer, verifiedAt: null, revokedAt: Date.now() });
+}
+
+export async function setPeerAlias(deviceId: string, alias: string): Promise<void> {
+  const db = await database();
+  const peer = await db.get("peers", deviceId);
+  if (!peer) throw new Error("未知设备");
+  await db.put("peers", { ...peer, alias: alias.trim().slice(0, 64) });
+}
+
+export async function markPeerSeen(deviceId: string): Promise<void> {
+  const db = await database();
+  const peer = await db.get("peers", deviceId);
+  if (peer) await db.put("peers", { ...peer, lastSeenAt: Date.now() });
 }
 
 export async function getPeer(deviceId: string): Promise<PeerRecord | undefined> {
@@ -134,6 +159,7 @@ export async function listPeers(): Promise<PeerRecord[]> {
 
 export async function createRoom(record: RoomRecord, myDeviceId: string): Promise<void> {
   if (!record.roomId || !record.name.trim() || record.members.length < 1 || record.members.length > 4) throw new Error("房间人数必须在 1 至 4 人之间");
+  if (record.kind === "direct" && record.members.length !== 2) throw new Error("私聊必须且只能有两台设备");
   if (!record.members.some((member) => member.deviceId === myDeviceId) || !record.members.some((member) => member.deviceId === record.ownerDeviceId)) {
     throw new Error("房间成员信息不完整");
   }
@@ -151,9 +177,15 @@ export async function saveRoom(record: RoomRecord, myDeviceId: string): Promise<
       !record.members.some((member) => member.deviceId === myDeviceId) ||
       new Set(record.members.map((member) => member.deviceId)).size !== record.members.length ||
       !record.members.every(verifyPublicIdentity)) throw new Error("房间成员信息无效");
+  if (record.kind === "direct" && record.members.length !== 2) throw new Error("私聊必须且只能有两台设备");
   const db = await database();
   const previous = await db.get("rooms", record.roomId);
   if (previous && previous.ownerDeviceId !== record.ownerDeviceId) throw new Error("房间创建者发生变化");
+  if (previous && (previous.kind ?? "group") !== (record.kind ?? "group")) throw new Error("房间类型不可更改");
+  if (previous?.kind === "direct" && (record.members.length !== 2 ||
+      previous.members.some((member) => !record.members.some((next) => next.deviceId === member.deviceId && next.signingPublicKey === member.signingPublicKey && next.exchangePublicKey === member.exchangePublicKey)))) {
+    throw new Error("私聊成员身份不可更改");
+  }
   await db.put("rooms", record);
 }
 
@@ -181,8 +213,9 @@ export async function storeIncoming(envelope: SignedEnvelope): Promise<boolean> 
   const room = await db.get("rooms", envelope.header.roomId);
   if (!room) throw new Error("未知房间");
   validateEnvelopeForRoom(envelope, room);
-  const tx = db.transaction(["envelopes", "rooms"], "readwrite");
+  const tx = db.transaction(["envelopes", "rooms", "settings"], "readwrite");
   const messages = tx.objectStore("envelopes");
+  if (await tx.objectStore("settings").get(`deleted-message:${envelope.header.messageId}`)) { await tx.done; return false; }
   const existing = await messages.get(envelope.header.messageId);
   if (existing) {
     await tx.done;
@@ -257,6 +290,36 @@ export async function ackReplica(messageId: string, deviceId: string): Promise<n
   return 1 + item.ackedBy.length;
 }
 
+export async function markRoomRead(roomId: string, myDeviceId: string, readableIds: Set<string>): Promise<string[]> {
+  const db = await database();
+  const room = await db.get("rooms", roomId);
+  if (!room || !room.members.some((member) => member.deviceId === myDeviceId)) throw new Error("未知房间");
+  const records = await listRoomEnvelopes(roomId);
+  const ids: string[] = [];
+  const tx = db.transaction(["envelopes", "rooms"], "readwrite");
+  for (const record of records) {
+    if (record.senderDeviceId === myDeviceId || record.readBy?.includes(myDeviceId) || !readableIds.has(record.messageId)) continue;
+    record.readBy = [...(record.readBy ?? []), myDeviceId];
+    await tx.objectStore("envelopes").put(record);
+    ids.push(record.messageId);
+    room.lastReadLamport = Math.max(room.lastReadLamport, record.lamportTimestamp);
+  }
+  if (ids.length) await tx.objectStore("rooms").put(room);
+  await tx.done;
+  return ids;
+}
+
+export async function ackRead(messageId: string, deviceId: string): Promise<boolean> {
+  const db = await database();
+  const record = await db.get("envelopes", messageId);
+  if (!record) throw new Error("未知消息");
+  const room = await db.get("rooms", record.roomId);
+  if (!room?.members.some((member) => member.deviceId === deviceId) || record.senderDeviceId === deviceId) throw new Error("已读确认者不在房间中");
+  if (record.readBy?.includes(deviceId)) return false;
+  await db.put("envelopes", { ...record, readBy: [...(record.readBy ?? []), deviceId] });
+  return true;
+}
+
 export async function listRoomEnvelopes(roomId: string): Promise<StoredEnvelope[]> {
   const db = await database();
   const records = await db.getAllFromIndex("envelopes", "by-room-lamport", IDBKeyRange.bound([roomId, 0], [roomId, Number.MAX_SAFE_INTEGER]));
@@ -265,6 +328,29 @@ export async function listRoomEnvelopes(roomId: string): Promise<StoredEnvelope[
 
 export async function getEnvelope(messageId: string): Promise<StoredEnvelope | undefined> {
   return (await database()).get("envelopes", messageId);
+}
+
+export async function isLocallyDeleted(messageId: string): Promise<boolean> {
+  return Boolean(await (await database()).get("settings", `deleted-message:${messageId}`));
+}
+
+export async function deleteLocalMessage(messageId: string): Promise<void> {
+  const db = await database();
+  const record = await db.get("envelopes", messageId);
+  if (!record) throw new Error("本机消息不存在");
+  const attachments = (await db.getAll("attachments")).filter((item) => item.messageId === messageId);
+  const tx = db.transaction(["envelopes", "outbox", "settings", "attachments"], "readwrite");
+  await tx.objectStore("settings").put({ key: `deleted-message:${messageId}`, value: true });
+  await tx.objectStore("outbox").delete(messageId);
+  await tx.objectStore("envelopes").delete(messageId);
+  for (const attachment of attachments) await tx.objectStore("attachments").delete(attachment.attachmentId);
+  await tx.done;
+}
+
+export async function deleteLocalRoomHistory(roomId: string): Promise<number> {
+  const records = await listRoomEnvelopes(roomId);
+  for (const record of records) await deleteLocalMessage(record.messageId);
+  return records.length;
 }
 
 export async function listOutbox(): Promise<OutboxItem[]> {
@@ -276,6 +362,17 @@ export async function setOutboxRetry(messageId: string, attempts: number, nextAt
   const item = await db.get("outbox", messageId);
   if (!item) return;
   await db.put("outbox", { ...item, attempts, nextAttemptAt });
+}
+
+export async function cancelOutbox(messageId: string, myDeviceId: string): Promise<void> {
+  const db = await database();
+  const tx = db.transaction(["envelopes", "outbox"], "readwrite");
+  const record = await tx.objectStore("envelopes").get(messageId);
+  const pending = await tx.objectStore("outbox").get(messageId);
+  if (!record || record.senderDeviceId !== myDeviceId || !pending) throw new Error("没有可取消的本机待发消息");
+  await tx.objectStore("envelopes").put({ ...record, cancelledAt: Date.now() });
+  await tx.objectStore("outbox").delete(messageId);
+  await tx.done;
 }
 
 export async function saveAttachment(record: AttachmentRecord): Promise<void> {

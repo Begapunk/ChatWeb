@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { expect, it } from "vitest";
 import { createVault, encryptMessage, newHeader } from "./crypto";
-import { ackReplica, createRoom, getEnvelope, getPeer, listOutbox, listRoomEnvelopes, loadVault, savePeer, saveVault, storeIncoming, storeOutgoing, verifyPeer } from "./storage";
+import { ackReplica, createRoom, deleteLocalMessage, getEnvelope, getPeer, listOutbox, listRoomEnvelopes, loadVault, savePeer, saveVault, storeIncoming, storeOutgoing, verifyPeer } from "./storage";
 
 it("stores signed ciphertext, prevents duplicate sequences, and tracks replica acknowledgements", async () => {
   const alice = await createVault("Alice", "correct horse battery staple");
@@ -34,6 +34,9 @@ it("stores signed ciphertext, prevents duplicate sequences, and tracks replica a
   await expect(storeIncoming(fork)).rejects.toThrow("同一设备序号");
   expect(await ackReplica(header.messageId, bob.record.publicIdentity.deviceId)).toBe(2);
   expect((await listOutbox()).find((item) => item.messageId === header.messageId)).toBeUndefined();
+  await deleteLocalMessage(header.messageId);
+  expect(await getEnvelope(header.messageId)).toBeUndefined();
+  expect(await storeIncoming(envelope)).toBe(false);
   alice.session.lock();
   bob.session.lock();
 });
