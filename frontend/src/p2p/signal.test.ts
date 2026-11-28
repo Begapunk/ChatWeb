@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { createVault } from "./crypto";
-import { createSignal, decodeSignal, encodeSignal, reassembleSignalParts, signalDigest, splitSignalCode } from "./signal";
+import { compactSignalCode, createSignal, decodeCompactSignalCode, decodeSignal, encodeSignal, reassembleSignalParts, signalDigest, splitSignalCode } from "./signal";
 
 it("signs manual WebRTC offer and reassembles out-of-order QR fragments", async () => {
   const device = await createVault("Phone", "correct horse battery staple");
@@ -10,6 +10,10 @@ it("signs manual WebRTC offer and reassembles out-of-order QR fragments", async 
     description: { type: "offer", sdp: `v=0\n${"a=candidate:1 1 UDP 123 192.0.2.1 5000 typ host\n".repeat(100)}` },
   });
   const code = encodeSignal(signal);
+  const compact = await compactSignalCode(code);
+  expect(compact.startsWith("aether-qr1:")).toBe(true);
+  expect(await decodeCompactSignalCode(compact)).toBe(code);
+  await expect(decodeCompactSignalCode(compact.slice(0, -4) + "abcd")).rejects.toThrow();
   expect((await decodeSignal(code)).from.deviceId).toBe(device.record.publicIdentity.deviceId);
   expect((await signalDigest(code)).length).toBe(24);
   const parts = await splitSignalCode(code, pairingId, 480);

@@ -2,6 +2,7 @@ import { ready, signData, verifyData, type PublicIdentity, type VaultSession } f
 
 const CODE_PREFIX = "aether1:";
 const PART_PREFIX = "aether-part1";
+const QR_PREFIX = "aether-qr1:";
 const MAX_CODE_CHARS = 100_000;
 const SIGNAL_LIFETIME_MS = 15 * 60 * 1000;
 
@@ -101,6 +102,44 @@ export async function decodeSignal(code: string): Promise<SignedSignal> {
   validateShape(signal);
   if (!verifyData(signal.from, "signal", unsigned(signal), signal.signature)) throw new Error("连接码签名验证失败");
   return signal;
+}
+
+/** A signed offer or answer compressed for a single optical transfer. */
+export async function compactSignalCode(code: string): Promise<string> {
+  const signal = await decodeSignal(code);
+  if (typeof CompressionStream === "undefined") throw new Error("此浏览器不支持单码压缩，请使用高级连接码");
+  const input = new TextEncoder().encode(JSON.stringify(signal));
+  const compressed = await new Response(new Blob([input.buffer as ArrayBuffer]).stream().pipeThrough(new CompressionStream("deflate"))).arrayBuffer();
+  const result = QR_PREFIX + encodeBytes(new Uint8Array(compressed));
+  if (result.length > 2800) throw new Error("当前网络连接信息超出单张二维码容量，请使用高级连接码");
+  return result;
+}
+
+export async function decodeCompactSignalCode(value: string): Promise<string> {
+  if (!value.startsWith(QR_PREFIX) || value.length > 4000 || typeof DecompressionStream === "undefined") throw new Error("连接二维码格式无效或浏览器不支持");
+  let stream: ReadableStreamDefaultReader<Uint8Array>;
+  try { stream = new Blob([decodeBytes(value.slice(QR_PREFIX.length)).buffer as ArrayBuffer]).stream().pipeThrough(new DecompressionStream("deflate")).getReader(); }
+  catch { throw new Error("连接二维码损坏"); }
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    while (true) {
+      const { done, value: chunk } = await stream.read();
+      if (done) break;
+      length += chunk.length;
+      if (length > MAX_CODE_CHARS) throw new Error("连接二维码解压后过大");
+      chunks.push(chunk);
+    }
+  } catch { throw new Error("连接二维码损坏或过大"); }
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+  let signal: SignedSignal;
+  try { signal = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as SignedSignal; }
+  catch { throw new Error("连接二维码内容无效"); }
+  const code = encodeSignal(signal);
+  await decodeSignal(code);
+  return code;
 }
 
 export async function signalDigest(code: string): Promise<string> {

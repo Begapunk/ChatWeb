@@ -2,7 +2,9 @@
 
 私人通讯 PWA 项目。`feat/aether-serverless-p2p` 分支的默认首页使用 WebRTC 直接连接，保留 GitHub Pages 静态托管与原 Matrix、Cloudflare 历史代码。**本轮升级已于 2026-11-28 发布到 [GitHub Pages](https://begapunk.github.io/ChatWeb/)，仍属待真实设备验收的测试版本**；当前实现、操作说明、测试证据和未完成项见 [2026-11-27 P2P 升级记录](docs/P2P-UPGRADE-2026-11-27.md)。旧版 [P2P 开发状态](docs/P2P-DEVELOPMENT.md) 是此前快照。
 
-本机开发：在 `frontend` 中运行 `npm ci`、`npm run dev`。验证命令为 `npm run typecheck`、`npm test`、`node e2e/p2p-identity.mjs`、`node e2e/p2p-local.mjs`；浏览器测试需先启动本机 Vite。GitHub Pages 构建使用 `VITE_BASE_PATH=/ChatWeb/ npm run build:pages`。发布前必须明确区分本机浏览器测试与真实手机网络测试。
+新的扫码添加设备流程见 [2026-11-28 扫码说明](docs/QR-PAIRING-2026-11-28.md)：一方展示添加设备码，另一方扫描并展示应答码，再由前者扫描一次。纯静态托管无法仅凭单向扫描长期身份二维码完成 WebRTC 双向连接。
+
+本机开发：在 `frontend` 中运行 `npm ci`、`npm run dev`。验证命令为 `npm run typecheck`、`npm test`、`node e2e/p2p-qr.mjs`、`node e2e/p2p-identity.mjs`、`node e2e/p2p-local.mjs`；浏览器测试需先启动本机 Vite。GitHub Pages 构建使用 `VITE_BASE_PATH=/ChatWeb/ npm run build:pages`。发布前必须明确区分本机浏览器测试与真实手机网络测试。
 
 下方内容是早期 Matrix/Cloudflare 阶段的历史记录，不代表当前 P2P 分支的发布状态。
 

@@ -74,6 +74,8 @@ export class P2PEngine {
   private sequence = 0;
   private incomingAttachments = new Map<string, IncomingAttachment>();
   private authStates = new Map<string, AuthState>();
+  private scannedPeers = new Set<string>();
+  private scannedOfferers = new Set<string>();
   private calls = new Map<string, CallState>();
   private linkHistory = new Map<string, LinkHistory>();
   private retryTimer: number;
@@ -247,9 +249,14 @@ export class P2PEngine {
     state.proofVerified = true;
     await markPeerSeen(from.deviceId);
     const peer = await getPeer(from.deviceId);
-    state.trusted = Boolean(peer?.verifiedAt && !peer.revokedAt);
+    if (!peer?.revokedAt && this.scannedPeers.has(from.deviceId)) await verifyPeer(from.deviceId);
+    const trustedPeer = await getPeer(from.deviceId);
+    state.trusted = Boolean(trustedPeer?.verifiedAt && !trustedPeer.revokedAt);
     this.onChange();
-    if (state.trusted) await this.syncWith(link);
+    if (state.trusted) {
+      await this.syncWith(link);
+      if (this.scannedOfferers.delete(from.deviceId)) await this.createDirect(from.deviceId);
+    }
   }
 
   async offer(roomId?: string, expectedPeerId?: string): Promise<string> {
@@ -268,6 +275,14 @@ export class P2PEngine {
     catch (error) { if (!existing) { link.close(); this.pending.delete(link); } throw error; }
   }
 
+  async answerScanned(code: string): Promise<string> {
+    const signal = await decodeSignal(code);
+    if (signal.kind !== "offer") throw new Error("请扫描对方的添加设备二维码");
+    this.scannedPeers.add(signal.from.deviceId);
+    try { return await this.answer(code); }
+    catch (error) { this.scannedPeers.delete(signal.from.deviceId); throw error; }
+  }
+
   async finish(code: string): Promise<PublicIdentity> {
     const signal = await decodeSignal(code);
     if (signal.kind !== "answer") throw new Error("请输入应答码");
@@ -281,6 +296,15 @@ export class P2PEngine {
       throw new Error(`设备身份已变化，已阻止连接。原指纹：${oldFingerprint}；新指纹：${newFingerprint}`);
     }
     return link.acceptAnswer(code);
+  }
+
+  async finishScanned(code: string): Promise<PublicIdentity> {
+    const signal = await decodeSignal(code);
+    if (signal.kind !== "answer") throw new Error("请扫描对方的应答二维码");
+    this.scannedPeers.add(signal.from.deviceId);
+    this.scannedOfferers.add(signal.from.deviceId);
+    try { return await this.finish(code); }
+    catch (error) { this.scannedPeers.delete(signal.from.deviceId); this.scannedOfferers.delete(signal.from.deviceId); throw error; }
   }
 
   private async rejectChangedNamedIdentity(identity: PublicIdentity): Promise<void> {

@@ -23,6 +23,7 @@ async function makeDevice(page, name) {
   await page.getByPlaceholder("设备口令，至少 12 个字符").fill("local-test-passphrase-12345");
   await page.getByRole("button", { name: "创建设备" }).click();
   await tab(page, "设置");
+  await page.getByText("我的设备身份与备份").click();
   await page.getByText("完整 SHA-256 身份指纹").waitFor();
   assert.match(await page.locator(".fingerprint").last().textContent(), /^[0-9a-f]{64}$/);
   await tab(page, "联系人");
