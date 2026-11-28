@@ -1,6 +1,6 @@
 # Aether
 
-私人通讯 PWA 项目。`feat/aether-serverless-p2p` 分支的默认首页使用 WebRTC 直接连接，保留 GitHub Pages 静态托管与原 Matrix、Cloudflare 历史代码。**本轮升级尚未发布到线上网页**；当前实现、操作说明、测试证据和未完成项见 [2026-11-27 P2P 升级记录](docs/P2P-UPGRADE-2026-11-27.md)。旧版 [P2P 开发状态](docs/P2P-DEVELOPMENT.md) 是此前快照。
+私人通讯 PWA 项目。`feat/aether-serverless-p2p` 分支的默认首页使用 WebRTC 直接连接，保留 GitHub Pages 静态托管与原 Matrix、Cloudflare 历史代码。**本轮升级已于 2026-11-28 发布到 [GitHub Pages](https://begapunk.github.io/ChatWeb/)，仍属待真实设备验收的测试版本**；当前实现、操作说明、测试证据和未完成项见 [2026-11-27 P2P 升级记录](docs/P2P-UPGRADE-2026-11-27.md)。旧版 [P2P 开发状态](docs/P2P-DEVELOPMENT.md) 是此前快照。
 
 本机开发：在 `frontend` 中运行 `npm ci`、`npm run dev`。验证命令为 `npm run typecheck`、`npm test`、`node e2e/p2p-identity.mjs`、`node e2e/p2p-local.mjs`；浏览器测试需先启动本机 Vite。GitHub Pages 构建使用 `VITE_BASE_PATH=/ChatWeb/ npm run build:pages`。发布前必须明确区分本机浏览器测试与真实手机网络测试。
 
